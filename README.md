@@ -1,3 +1,4 @@
+<img width="256" height="256" alt="icon QNP" src="https://github.com/user-attachments/assets/80e4ef1f-bf25-4234-bc7d-126b12283519" />
 # Quick N-panel
 
 Quick N-panel is a Dudehtm extension for Blender 5.0 or newer, tested through
@@ -6,6 +7,8 @@ them from a quick launcher. It does not copy panels, register third-party
 interfaces, or manage installations.
 
 ## Features
+
+<img width="1919" height="985" alt="Captura de pantalla 2026-08-23 172606" src="https://github.com/user-attachments/assets/0a49ec8d-6301-48bb-9025-7e9dcde0913a" />
 
 Quick N-panel is packaged as a modern Blender extension and provides:
 
@@ -72,6 +75,7 @@ Quick N-panel registers `F5` in Blender's `3D View` keymap. To change or disable
 it, open `Edit > Preferences > Keymap` and search for `Quick N-panel` or
 `quick_n_panel.show_launcher`. The extension intentionally does not modify user
 keymaps or provide a separate shortcut editor.
+<img width="1920" height="1080" alt="QNP F" src="https://github.com/user-attachments/assets/98993f37-0bb5-4b70-b883-f1fe395d6298" />
 
 ## Included Icons
 
