@@ -1,0 +1,37 @@
+# Python caches and generated files
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Blender backup and temporary files
+*.blend1
+*.blend2
+*.blend@
+
+# Builds and release artifacts
+*.zip
+build/
+dist/
+
+# Internal agent and release-planning documents
+AGENT.md
+AGENTS.md
+agents.md
+.agents/
+.codex/
+MULTI_EDITOR_PLAN.md
+EXPORTACION_Y_DISTRIBUCION.md
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.log
+*.tmp

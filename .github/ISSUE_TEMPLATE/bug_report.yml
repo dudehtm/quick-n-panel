@@ -1,0 +1,73 @@
+name: Bug report
+description: Report a reproducible problem with Quick N-panel
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. Please remove private information from logs and screenshots.
+
+  - type: input
+    id: blender_version
+    attributes:
+      label: Blender version
+      description: Include the complete version shown in Blender, for example 5.2.1.
+      placeholder: 5.2.1
+    validations:
+      required: true
+
+  - type: input
+    id: extension_version
+    attributes:
+      label: Quick N-panel version
+      placeholder: 1.0.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: operating_system
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Problem description
+      description: Explain what happened and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open Blender...
+        2. Press F5...
+        3. Select...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Console output or screenshots
+      description: Attach relevant output or images after removing sensitive information.
+      render: shell
+
+  - type: checkboxes
+    id: clean_profile
+    attributes:
+      label: Additional checks
+      options:
+        - label: I reproduced the problem after restarting Blender.
+        - label: I checked whether another enabled add-on causes the conflict.
