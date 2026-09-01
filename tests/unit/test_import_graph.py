@@ -1,12 +1,12 @@
 import importlib
 import sys
-from pathlib import Path
 from types import ModuleType, SimpleNamespace
 import unittest
 
+from package_bootstrap import PROJECT_ROOT, ensure_source_package
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(PROJECT_ROOT.parent))
+
+ensure_source_package()
 
 
 def install_fake_bpy():

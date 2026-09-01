@@ -1,10 +1,9 @@
-import sys
-from pathlib import Path
 import unittest
 
+from package_bootstrap import ensure_source_package
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(PROJECT_ROOT.parent))
+
+ensure_source_package()
 
 from quick_n_panel.core.catalog import (  # noqa: E402
     PanelDescriptor,
