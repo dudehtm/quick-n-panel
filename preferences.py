@@ -20,7 +20,7 @@ from .constants import (
     DEFAULT_ICON_COLOR_MODE,
     DISPLAY_MODE_ITEMS,
     ICON_COLOR_MODE_ITEMS,
-    MAX_FAVORITES,
+    MAX_FAVORITE_RECORDS,
     NEW_ADDON_RETENTION_SECONDS,
 )
 from .core.catalog import addon_key_for_module
@@ -414,6 +414,10 @@ def _descriptor_addon_keys(descriptor, addon_keys: set[str]) -> tuple[str, ...]:
 
 def ensure_favorites(preferences):
     if preferences.favorites_schema_version >= 1:
+        preferences.favorite_index = min(
+            preferences.favorite_index,
+            max(0, len(preferences.favorites) - 1),
+        )
         return
 
     current = (item.target_key for item in preferences.favorites)
@@ -621,7 +625,7 @@ def _merge_favorite_keys(*collections) -> tuple[str, ...]:
                 continue
             seen.add(target_key)
             result.append(target_key)
-            if len(result) == MAX_FAVORITES:
+            if len(result) == MAX_FAVORITE_RECORDS:
                 return tuple(result)
     return tuple(result)
 

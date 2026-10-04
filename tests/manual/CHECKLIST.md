@@ -63,9 +63,10 @@ Run every release candidate in Blender 5.0, 5.1, and 5.2.
 ## Organization
 
 - Migrate three legacy favorites and confirm their order is preserved.
-- Add, replace, and remove up to eight favorites.
-- Reorder favorites in the configuration panel and confirm the popup stays clean.
-- Confirm a ninth favorite is rejected without changing the collection.
+- Add, replace, and remove at least 30 favorites.
+- Reorder favorites in the scrollable configuration list and confirm the popup stays clean.
+- Confirm the launcher shows ten favorite rows and scrolls internally to reach later entries.
+- Confirm the configuration list scrolls internally and keeps its actions available.
 - Confirm the launcher shows separate `Library` and `Categories` buttons with
   matching visual treatment.
 - Confirm populated categories follow the order configured in Categories, not
@@ -120,8 +121,9 @@ Run every release candidate in Blender 5.0, 5.1, and 5.2.
 - In `All Tabs`, confirm each target keeps its own icon and also shows its
   category icon, including unassigned or deleted-category targets.
 - Test large category counts near all four screen edges and record the first
-  scale where content becomes inaccessible; scroll/pagination is intentionally
-  deferred.
+  scale where content becomes inaccessible.
+- Test 30 or more favorites near all four screen edges and confirm the ten-row
+  list remains usable.
 
 ## Cleanup
 

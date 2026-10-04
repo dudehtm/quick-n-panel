@@ -15,7 +15,7 @@ Quick N-panel is packaged as a modern Blender extension and provides:
 - detection of `VIEW_3D` / `UI` panels;
 - grouping by native `bl_category` tab;
 - navigation through `Region.active_panel_category`;
-- compact popup with search, recent access, and up to eight favorites;
+- compact popup with search, recent access, and a scrollable favorites list;
 - new-install defaults of a 400 px popup and original custom icon colors;
 - compact contextual shortcuts for View, Tool, Edit, and Item;
 - separate Library and Categories popovers; Library lists every available tab and
@@ -25,7 +25,7 @@ Quick N-panel is packaged as a modern Blender extension and provides:
 - bundled library of `QNP_*` icons for groups and tabs;
 - self-refreshing small and large icon previews without restarting Blender;
 - configuration panel organized into collapsible sections;
-- dynamic, ordered favorites limited to eight entries;
+- dynamic, ordered favorites with ten visible rows and internal scrolling;
 - recent access with persistent counters and timestamps;
 - a temporary `New` section below Recent for up to three newly enabled add-ons;
 - exact attribution for legacy add-ons and Blender Extensions using their enabled

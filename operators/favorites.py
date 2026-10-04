@@ -4,7 +4,7 @@ import bpy
 from bpy.props import EnumProperty, IntProperty, StringProperty
 
 from .. import persistence
-from ..constants import MAX_FAVORITES
+from ..constants import MAX_FAVORITE_RECORDS
 from ..preferences import favorite_keys, get_preferences
 from .choices import target_choices
 
@@ -15,15 +15,23 @@ class QNP_OT_AssignFavorite(bpy.types.Operator):
     bl_property = "target_key"
     bl_options = {"INTERNAL"}
 
-    index: IntProperty(default=-1, min=-1, max=MAX_FAVORITES - 1, options={"HIDDEN"})
+    index: IntProperty(
+        default=-1,
+        min=-1,
+        max=MAX_FAVORITE_RECORDS - 1,
+        options={"HIDDEN"},
+    )
     target_key: EnumProperty(name="Sidebar Tab", items=target_choices)
 
     def invoke(self, context, _event):
         preferences = get_preferences(context)
         if preferences is None:
             return {"CANCELLED"}
-        if self.index < 0 and len(preferences.favorites) >= MAX_FAVORITES:
-            self.report({"WARNING"}, f"A maximum of {MAX_FAVORITES} favorites is allowed")
+        if self.index < 0 and len(preferences.favorites) >= MAX_FAVORITE_RECORDS:
+            self.report(
+                {"WARNING"},
+                f"A maximum of {MAX_FAVORITE_RECORDS} favorites is allowed",
+            )
             return {"CANCELLED"}
         if not target_choices(self, context):
             self.report({"INFO"}, "No sidebar tabs are available")
@@ -43,7 +51,7 @@ class QNP_OT_AssignFavorite(bpy.types.Operator):
             existing_index = None
 
         if self.index < 0:
-            if len(preferences.favorites) >= MAX_FAVORITES:
+            if len(preferences.favorites) >= MAX_FAVORITE_RECORDS:
                 return {"CANCELLED"}
             if existing_index is not None:
                 self.report({"INFO"}, "This tab is already a favorite")
@@ -71,7 +79,11 @@ class QNP_OT_ClearFavorite(bpy.types.Operator):
     bl_label = "Remove Favorite"
     bl_options = {"INTERNAL"}
 
-    index: IntProperty(min=0, max=MAX_FAVORITES - 1, options={"HIDDEN"})
+    index: IntProperty(
+        min=0,
+        max=MAX_FAVORITE_RECORDS - 1,
+        options={"HIDDEN"},
+    )
 
     def execute(self, context):
         preferences = get_preferences(context)
@@ -91,7 +103,11 @@ class QNP_OT_MoveFavorite(bpy.types.Operator):
     bl_label = "Move Favorite"
     bl_options = {"INTERNAL"}
 
-    index: IntProperty(min=0, max=MAX_FAVORITES - 1, options={"HIDDEN"})
+    index: IntProperty(
+        min=0,
+        max=MAX_FAVORITE_RECORDS - 1,
+        options={"HIDDEN"},
+    )
     direction: IntProperty(default=1, min=-1, max=1, options={"HIDDEN"})
 
     def execute(self, context):
@@ -142,8 +158,11 @@ class QNP_OT_ToggleFavorite(bpy.types.Operator):
             persistence.request_save()
             return {"FINISHED"}
 
-        if len(preferences.favorites) >= MAX_FAVORITES:
-            self.report({"WARNING"}, f"A maximum of {MAX_FAVORITES} favorites is allowed")
+        if len(preferences.favorites) >= MAX_FAVORITE_RECORDS:
+            self.report(
+                {"WARNING"},
+                f"A maximum of {MAX_FAVORITE_RECORDS} favorites is allowed",
+            )
             return {"CANCELLED"}
 
         item = preferences.favorites.add()

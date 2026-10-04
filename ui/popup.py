@@ -1,6 +1,10 @@
 """Theme-native compact and expanded launcher layouts."""
 
-from ..constants import MAX_FAVORITES, MAX_NEW_ADDONS
+from ..constants import (
+    FAVORITES_VISIBLE_ROWS,
+    MAX_FAVORITE_RECORDS,
+    MAX_NEW_ADDONS,
+)
 from ..core import icons, scanner
 from ..core.catalog import module_display_name
 from ..core.memberships import group_order_for, target_in_group
@@ -13,6 +17,7 @@ from ..preferences import (
 
 
 _EMPTY_CATEGORIES_EXPANDED_PROPERTY = "qnp_empty_categories_expanded"
+_LAUNCHER_FAVORITE_INDEX_PROPERTY = "qnp_launcher_favorite_index"
 
 
 def draw_launcher_popup(layout, context):
@@ -111,6 +116,7 @@ def reset_popup_state(context):
     window_manager = getattr(context, "window_manager", None)
     if window_manager is not None:
         window_manager.qnp_empty_categories_expanded = False
+        setattr(window_manager, _LAUNCHER_FAVORITE_INDEX_PROPERTY, 0)
 
 
 def _draw_categories_grid(layout, context, preferences):
@@ -260,7 +266,7 @@ def _draw_favorites(parent, context, preferences):
         header.label(text="Favorites", icon="SOLO_ON")
     add_row = header.row(align=True)
     add_row.alignment = "RIGHT"
-    add_row.enabled = len(preferences.favorites) < MAX_FAVORITES
+    add_row.enabled = len(preferences.favorites) < MAX_FAVORITE_RECORDS
     add = add_row.operator(
         "quick_n_panel.assign_favorite",
         text="",
@@ -269,14 +275,23 @@ def _draw_favorites(parent, context, preferences):
     add.index = -1
     column.separator(factor=0.6)
 
-    keys = favorite_keys(preferences)
-    if not keys:
+    if not preferences.favorites:
         empty = column.row(align=True)
         empty.enabled = False
         empty.label(text="No favorites configured", icon="INFO")
     else:
-        for target_key in keys:
-            _draw_target_button(column, context, preferences, target_key)
+        list_row = column.row(align=True)
+        visible_rows = min(FAVORITES_VISIBLE_ROWS, len(preferences.favorites))
+        list_row.template_list(
+            "QNP_UL_launcher_favorites",
+            "popup",
+            preferences,
+            "favorites",
+            context.window_manager,
+            _LAUNCHER_FAVORITE_INDEX_PROPERTY,
+            rows=visible_rows,
+            maxrows=FAVORITES_VISIBLE_ROWS,
+        )
 
 
 def _draw_populated_categories(

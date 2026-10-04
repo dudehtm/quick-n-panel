@@ -16,7 +16,7 @@ from .constants import (
     DEFAULT_ICON_COLOR_MODE,
     DISPLAY_MODE_ITEMS,
     ICON_COLOR_MODE_ITEMS,
-    MAX_FAVORITES,
+    MAX_FAVORITE_RECORDS,
 )
 
 
@@ -660,7 +660,7 @@ def _validate_payload(payload) -> dict:
         limits = {
             "groups": MAX_GROUP_RECORDS,
             "targets": MAX_TARGET_RECORDS,
-            "favorites": MAX_FAVORITES,
+            "favorites": MAX_FAVORITE_RECORDS,
             "new_addons": MAX_NEW_ADDON_RECORDS,
             "observed_addons": MAX_OBSERVED_ADDON_RECORDS,
         }

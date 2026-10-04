@@ -1,7 +1,7 @@
 """Centralized and reversible Blender registration."""
 
 import bpy
-from bpy.props import BoolProperty
+from bpy.props import BoolProperty, IntProperty
 
 from . import keymap, persistence
 from .core import icons, navigation, scanner
@@ -36,9 +36,16 @@ CLASSES = (
 _registered_classes = []
 _is_registered = False
 _EMPTY_CATEGORIES_EXPANDED_PROPERTY = "qnp_empty_categories_expanded"
+_LAUNCHER_FAVORITE_INDEX_PROPERTY = "qnp_launcher_favorite_index"
 
 
 def _empty_categories_expansion_updated(_window_manager, context):
+    region = getattr(context, "region", None)
+    if region is not None:
+        region.tag_redraw()
+
+
+def _launcher_favorite_index_updated(_window_manager, context):
     region = getattr(context, "region", None)
     if region is not None:
         region.tag_redraw()
@@ -146,8 +153,23 @@ def _register_runtime_properties():
                 update=_empty_categories_expansion_updated,
             ),
         )
+    if not hasattr(bpy.types.WindowManager, _LAUNCHER_FAVORITE_INDEX_PROPERTY):
+        setattr(
+            bpy.types.WindowManager,
+            _LAUNCHER_FAVORITE_INDEX_PROPERTY,
+            IntProperty(
+                name="Launcher Favorite",
+                description="Active favorite row in the launcher",
+                default=0,
+                min=0,
+                options={"HIDDEN", "SKIP_SAVE"},
+                update=_launcher_favorite_index_updated,
+            ),
+        )
 
 
 def _unregister_runtime_properties():
     if hasattr(bpy.types.WindowManager, _EMPTY_CATEGORIES_EXPANDED_PROPERTY):
         delattr(bpy.types.WindowManager, _EMPTY_CATEGORIES_EXPANDED_PROPERTY)
+    if hasattr(bpy.types.WindowManager, _LAUNCHER_FAVORITE_INDEX_PROPERTY):
+        delattr(bpy.types.WindowManager, _LAUNCHER_FAVORITE_INDEX_PROPERTY)

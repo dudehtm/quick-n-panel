@@ -441,6 +441,18 @@ class PersistenceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "too many groups"):
             persistence._validate_payload(payload)
 
+    def test_large_favorite_collection_is_preserved(self):
+        payload = persistence.snapshot_preferences(configured_preferences())
+        payload["favorites"] = [
+            {"name": f"favorite-{index}", "target_key": f"target-{index}"}
+            for index in range(30)
+        ]
+
+        validated = persistence._validate_payload(payload)
+
+        self.assertEqual(len(validated["favorites"]), 30)
+        self.assertEqual(validated["favorites"][29]["target_key"], "target-29")
+
     def test_clean_flush_replaces_a_corrupt_snapshot_from_live_preferences(self):
         source = configured_preferences()
         original_sidecar_path = persistence.sidecar_path

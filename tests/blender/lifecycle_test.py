@@ -184,6 +184,7 @@ def main():
             assert preferences.observed_addons_initialized
             assert "panel" in bpy.types.UILayout.bl_rna.functions
             assert hasattr(bpy.types.WindowManager, "qnp_empty_categories_expanded")
+            assert hasattr(bpy.types.WindowManager, "qnp_launcher_favorite_index")
             registered_ids = {
                 getattr(cls, "bl_idname", "") for cls in registration._registered_classes
             }
@@ -228,6 +229,7 @@ def main():
             registration.unregister_addon()
             assert not keymap._addon_keymaps
             assert not hasattr(bpy.types.WindowManager, "qnp_empty_categories_expanded")
+            assert not hasattr(bpy.types.WindowManager, "qnp_launcher_favorite_index")
             assert icons._custom_previews is None
             assert icons._accent_previews is None
             assert not icons._retired_preview_collections

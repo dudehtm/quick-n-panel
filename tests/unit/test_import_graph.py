@@ -86,7 +86,7 @@ class ImportGraphTests(unittest.TestCase):
         preferences = importlib.import_module("quick_n_panel.preferences")
         properties = importlib.import_module("quick_n_panel.properties")
 
-        self.assertEqual(len(registration.CLASSES), 39)
+        self.assertEqual(len(registration.CLASSES), 41)
         identifiers = [
             getattr(cls, "bl_idname", cls.__name__)
             for cls in registration.CLASSES
@@ -97,6 +97,8 @@ class ImportGraphTests(unittest.TestCase):
         self.assertIn("quick_n_panel.open_direct_category", identifiers)
         self.assertIn("quick_n_panel.export_configuration", identifiers)
         self.assertIn("quick_n_panel.import_configuration", identifiers)
+        self.assertIn("QNP_UL_launcher_favorites", identifiers)
+        self.assertIn("QNP_UL_launcher_favorite_config", identifiers)
         self.assertNotIn("quick_n_panel.capture_shortcut", identifiers)
         self.assertNotIn("quick_n_panel.show_categories", identifiers)
         self.assertNotIn("QNP_PT_launcher_shortcuts", identifiers)
@@ -640,12 +642,113 @@ class ImportGraphTests(unittest.TestCase):
     def test_reset_popup_state_closes_empty_categories(self):
         popup_module = importlib.import_module("quick_n_panel.ui.popup")
         context = SimpleNamespace(
-            window_manager=SimpleNamespace(qnp_empty_categories_expanded=True)
+            window_manager=SimpleNamespace(
+                qnp_empty_categories_expanded=True,
+                qnp_launcher_favorite_index=7,
+            )
         )
 
         popup_module.reset_popup_state(context)
 
         self.assertFalse(context.window_manager.qnp_empty_categories_expanded)
+        self.assertEqual(context.window_manager.qnp_launcher_favorite_index, 0)
+
+    def test_launcher_favorites_use_a_scrollable_ten_row_list(self):
+        popup_module = importlib.import_module("quick_n_panel.ui.popup")
+        template_lists = []
+
+        class FakeLayout:
+            enabled = True
+
+            def box(self):
+                return self
+
+            def column(self, *, align):
+                return self
+
+            def row(self, *, align=False):
+                return self
+
+            def label(self, *, text, **_kwargs):
+                pass
+
+            def separator(self, **_kwargs):
+                pass
+
+            def operator(self, _identifier, **_kwargs):
+                return SimpleNamespace()
+
+            def template_list(self, *args, **kwargs):
+                template_lists.append((args, kwargs))
+
+        class FakeFavorites(list):
+            pass
+
+        favorites = FakeFavorites(
+            SimpleNamespace(target_key=f"target_{index}") for index in range(30)
+        )
+        preferences = SimpleNamespace(favorites=favorites)
+        context = SimpleNamespace(
+            window_manager=SimpleNamespace(qnp_launcher_favorite_index=0)
+        )
+        original_icon = popup_module.icons.bundled_icon_value
+        popup_module.icons.bundled_icon_value = lambda _name: 0
+        try:
+            popup_module._draw_favorites(FakeLayout(), context, preferences)
+        finally:
+            popup_module.icons.bundled_icon_value = original_icon
+
+        self.assertEqual(len(template_lists), 1)
+        args, kwargs = template_lists[0]
+        self.assertEqual(args[:6], (
+            "QNP_UL_launcher_favorites",
+            "popup",
+            preferences,
+            "favorites",
+            context.window_manager,
+            "qnp_launcher_favorite_index",
+        ))
+        self.assertEqual(kwargs["rows"], 10)
+        self.assertEqual(kwargs["maxrows"], 10)
+
+    def test_favorite_configuration_uses_the_same_scrollable_row_count(self):
+        favorites_ui = importlib.import_module("quick_n_panel.ui.sections.favorites")
+        template_lists = []
+
+        class FakeLayout:
+            def label(self, *, text, **_kwargs):
+                pass
+
+            def template_list(self, *args, **kwargs):
+                template_lists.append((args, kwargs))
+
+            def separator(self, **_kwargs):
+                pass
+
+            def row(self, *, align=False):
+                return self
+
+            def operator(self, _identifier, **_kwargs):
+                return SimpleNamespace()
+
+        preferences = SimpleNamespace(
+            favorites=[SimpleNamespace(target_key=f"target_{index}") for index in range(30)],
+            favorite_index=0,
+        )
+        favorites_ui.draw(FakeLayout(), None, preferences)
+
+        self.assertEqual(len(template_lists), 1)
+        args, kwargs = template_lists[0]
+        self.assertEqual(args[:6], (
+            "QNP_UL_launcher_favorite_config",
+            "configuration",
+            preferences,
+            "favorites",
+            preferences,
+            "favorite_index",
+        ))
+        self.assertEqual(kwargs["rows"], 10)
+        self.assertEqual(kwargs["maxrows"], 10)
 
     def test_new_addon_block_shows_only_available_three_with_dismissal(self):
         popup_module = importlib.import_module("quick_n_panel.ui.popup")
@@ -1316,16 +1419,16 @@ class ImportGraphTests(unittest.TestCase):
         preferences_module.ensure_favorites(preferences)
         self.assertEqual(preferences_module.favorite_keys(preferences), ())
 
-    def test_favorite_merge_deduplicates_and_stops_at_eight(self):
+    def test_favorite_merge_deduplicates_without_a_small_ui_limit(self):
         preferences_module = importlib.import_module("quick_n_panel.preferences")
         merged = preferences_module._merge_favorite_keys(
             ("A", "B", "A", ""),
-            tuple("CDEFGHIJ"),
+            tuple("CDEFGHIJKLMNOPQRSTUVWXYZ"),
         )
 
-        self.assertEqual(merged, tuple("ABCDEFGH"))
+        self.assertEqual(merged, tuple("ABCDEFGHIJKLMNOPQRSTUVWXYZ"))
 
-    def test_favorite_operators_append_swap_move_remove_and_limit(self):
+    def test_favorite_operators_append_swap_move_remove_beyond_ten(self):
         favorites_module = importlib.import_module("quick_n_panel.operators.favorites")
         preferences_module = importlib.import_module("quick_n_panel.preferences")
         preferences = SimpleNamespace(
@@ -1335,16 +1438,13 @@ class ImportGraphTests(unittest.TestCase):
         original_get_preferences = favorites_module.get_preferences
         favorites_module.get_preferences = lambda _context: preferences
         try:
-            for target_key in "ABCDEFGH":
+            for target_key in "ABCDEFGHIJKLMNOPQRST":
                 operator = favorites_module.QNP_OT_AssignFavorite()
                 operator.index = -1
                 operator.target_key = target_key
                 self.assertEqual(operator.execute(None), {"FINISHED"})
 
-            overflow = favorites_module.QNP_OT_AssignFavorite()
-            overflow.index = -1
-            overflow.target_key = "I"
-            self.assertEqual(overflow.execute(None), {"CANCELLED"})
+            self.assertEqual(len(preferences.favorites), 20)
 
             swap = favorites_module.QNP_OT_AssignFavorite()
             swap.index = 0
@@ -1364,7 +1464,7 @@ class ImportGraphTests(unittest.TestCase):
             self.assertEqual(preferences_module.favorite_keys(preferences)[0], "B")
 
             toggle = favorites_module.QNP_OT_ToggleFavorite()
-            toggle.target_key = "I"
+            toggle.target_key = "U"
             self.assertEqual(toggle.execute(None), {"FINISHED"})
 
             toggle_existing = favorites_module.QNP_OT_ToggleFavorite()
@@ -1373,13 +1473,13 @@ class ImportGraphTests(unittest.TestCase):
             self.assertNotIn("B", preferences_module.favorite_keys(preferences))
 
             refill = favorites_module.QNP_OT_ToggleFavorite()
-            refill.target_key = "J"
+            refill.target_key = "V"
             self.assertEqual(refill.execute(None), {"FINISHED"})
 
-            overflow = favorites_module.QNP_OT_ToggleFavorite()
-            overflow.target_key = "K"
-            overflow.report = lambda *_args: None
-            self.assertEqual(overflow.execute(None), {"CANCELLED"})
+            beyond_ten = favorites_module.QNP_OT_ToggleFavorite()
+            beyond_ten.target_key = "W"
+            self.assertEqual(beyond_ten.execute(None), {"FINISHED"})
+            self.assertGreater(len(preferences.favorites), 20)
         finally:
             favorites_module.get_preferences = original_get_preferences
 
