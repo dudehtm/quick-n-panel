@@ -4,7 +4,7 @@ import bpy
 
 from ..core import icons, scanner
 from ..core.search import normalize_text
-from ..preferences import display_name_for, favorite_keys, get_preferences
+from ..preferences import display_name_for, favorite_keys
 
 
 class QNP_UL_Groups(bpy.types.UIList):
@@ -50,9 +50,10 @@ class QNP_UL_Targets(bpy.types.UIList):
         _active_property,
         _index,
     ):
-        preferences = get_preferences(context)
+        preferences = _data
         favorites = favorite_keys(preferences) if preferences else ()
-        exists = scanner.target_exists(item.native_key)
+        snapshot = scanner.get_snapshot()
+        exists = scanner.target_exists(item.native_key, snapshot=snapshot)
 
         if self.layout_type in {"DEFAULT", "COMPACT"}:
             row = layout.row(align=True)
@@ -237,20 +238,28 @@ def _draw_favorite_target(parent, context, preferences, target_key, *, contextua
         row.label(text="Missing target" if target_key else "Empty", icon="ERROR")
         return
 
-    exists = scanner.target_exists(target_key)
+    snapshot = scanner.get_snapshot()
+    exists = scanner.target_exists(target_key, snapshot=snapshot)
     available = exists
     if contextual:
-        available = available and scanner.target_is_context_available(target_key, context)
+        availability_cache = scanner.get_active_availability_cache()
+        available = available and scanner.target_is_context_available(
+            target_key,
+            context,
+            snapshot=snapshot,
+            availability_cache=availability_cache,
+        )
 
-    icon_name, icon_value = icons.resolve_icon(
-        target.icon_name,
-        target.icon_path,
-        target.bundled_icon,
-    )
-    if not exists:
-        icon_name, icon_value = "ERROR", 0
     if getattr(preferences, "display_mode", "BOTH") == "NAME":
         icon_name, icon_value = "NONE", 0
+    else:
+        icon_name, icon_value = icons.resolve_icon(
+            target.icon_name,
+            target.icon_path,
+            target.bundled_icon,
+        )
+    if not exists:
+        icon_name, icon_value = "ERROR", 0
 
     kwargs = {"text": display_name_for(target)}
     if icon_value:

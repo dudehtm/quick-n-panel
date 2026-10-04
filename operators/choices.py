@@ -33,11 +33,12 @@ def _target_items(context, *, excluded_group_id=None):
         return []
 
     snapshot = scanner.refresh_catalog(context)
+    available_keys = snapshot.by_key
     targets = [
         target
         for target in preferences.targets
         if (
-            target.native_key in snapshot.by_key
+            target.native_key in available_keys
             and (
                 excluded_group_id is None
                 or not target_in_group(target, excluded_group_id)

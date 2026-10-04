@@ -177,6 +177,96 @@ class ImportGraphTests(unittest.TestCase):
         finally:
             scanner.invalidate_catalog()
 
+    def test_catalog_snapshot_materializes_indexes(self):
+        scanner = importlib.import_module("quick_n_panel.core.scanner")
+        catalog = importlib.import_module("quick_n_panel.core.catalog")
+        target = catalog.TargetDescriptor(
+            native_key="sample",
+            native_category="Sample",
+            panels=(catalog.PanelDescriptor("SAMPLE_PT_main", "Main", "sample"),),
+        )
+
+        snapshot = scanner.CatalogSnapshot(targets=(target,))
+
+        self.assertIs(snapshot.by_key, snapshot.by_key)
+        self.assertIs(snapshot.by_key["sample"], target)
+        self.assertEqual(snapshot.panel_count, 1)
+
+    def test_refresh_catalog_returns_fresh_snapshot_before_global_state_checks(self):
+        scanner = importlib.import_module("quick_n_panel.core.scanner")
+        snapshot = scanner.CatalogSnapshot(
+            targets=(),
+            scanned_at=scanner.time.monotonic(),
+        )
+        original_snapshot = scanner._snapshot
+        original_include = scanner._last_include_builtin
+        original_preferences = scanner._preferences_or_none
+        original_enabled = scanner._enabled_addon_state
+        original_panels = scanner._panel_incarnation_state
+        original_scan = scanner.scan_sidebar_targets
+        scanner._snapshot = snapshot
+        scanner._last_include_builtin = False
+        scanner._preferences_or_none = lambda _context: SimpleNamespace(
+            include_builtin_tabs=False
+        )
+        scanner._enabled_addon_state = lambda _context: self.fail(
+            "fresh cache should return before addon enumeration"
+        )
+        scanner._panel_incarnation_state = lambda _keys: self.fail(
+            "fresh cache should return before panel enumeration"
+        )
+        scanner.scan_sidebar_targets = lambda **_kwargs: self.fail(
+            "fresh cache should return before scanning"
+        )
+        try:
+            self.assertIs(scanner.refresh_catalog(SimpleNamespace()), snapshot)
+        finally:
+            scanner._snapshot = original_snapshot
+            scanner._last_include_builtin = original_include
+            scanner._preferences_or_none = original_preferences
+            scanner._enabled_addon_state = original_enabled
+            scanner._panel_incarnation_state = original_panels
+            scanner.scan_sidebar_targets = original_scan
+
+    def test_direct_category_availability_uses_shared_cache(self):
+        scanner = importlib.import_module("quick_n_panel.core.scanner")
+        catalog = importlib.import_module("quick_n_panel.core.catalog")
+        target = catalog.TargetDescriptor(
+            native_key="VIEW_3D|UI|Edit",
+            native_category="Edit",
+            panels=(catalog.PanelDescriptor("EDIT_PT_main", "Main", "sample"),),
+        )
+        context = SimpleNamespace(
+            area=SimpleNamespace(type="VIEW_3D"),
+            active_object=object(),
+        )
+        cache = {}
+        calls = []
+        original_direct = scanner.DIRECT_CATEGORIES
+        original_visible = scanner._target_has_visible_root_panel
+        scanner.DIRECT_CATEGORIES = ("Edit",)
+        scanner._target_has_visible_root_panel = lambda *_args, **_kwargs: calls.append(
+            True
+        ) or True
+        try:
+            first = scanner.available_direct_categories(
+                context,
+                snapshot=scanner.CatalogSnapshot(targets=(target,)),
+                availability_cache=cache,
+            )
+            second = scanner.available_direct_categories(
+                context,
+                snapshot=scanner.CatalogSnapshot(targets=(target,)),
+                availability_cache=cache,
+            )
+        finally:
+            scanner.DIRECT_CATEGORIES = original_direct
+            scanner._target_has_visible_root_panel = original_visible
+
+        self.assertEqual(first, ("Edit",))
+        self.assertEqual(second, ("Edit",))
+        self.assertEqual(len(calls), 1)
+
     def test_keymap_only_registers_and_unregisters_the_default_shortcut(self):
         keymap_module = importlib.import_module("quick_n_panel.keymap")
         calls = []
@@ -265,6 +355,22 @@ class ImportGraphTests(unittest.TestCase):
             icons_module._preview_icon_id(SimpleNamespace(icon_id=42)),
             42,
         )
+
+    def test_bundled_icon_value_uses_cached_preview_id(self):
+        icons_module = importlib.import_module("quick_n_panel.core.icons")
+        original_values = dict(icons_module._bundled_icon_values)
+        original_custom_value = icons_module.custom_icon_value
+        icons_module._bundled_icon_values.clear()
+        icons_module._bundled_icon_values["QNP_Test"] = 42
+        icons_module.custom_icon_value = lambda _filepath: self.fail(
+            "cached bundled icons must not resolve the file again"
+        )
+        try:
+            self.assertEqual(icons_module.bundled_icon_value("QNP_Test"), 42)
+        finally:
+            icons_module.custom_icon_value = original_custom_value
+            icons_module._bundled_icon_values.clear()
+            icons_module._bundled_icon_values.update(original_values)
 
     def test_retired_previews_survive_a_redraw_cycle_before_cleanup(self):
         icons_module = importlib.import_module("quick_n_panel.core.icons")
@@ -837,8 +943,9 @@ class ImportGraphTests(unittest.TestCase):
         original_refresh = popup_module.scanner.refresh_catalog
         original_snapshot = popup_module.scanner.get_snapshot
         original_target = popup_module._draw_target_button
+        refresh_calls = []
         popup_module.get_preferences = lambda _context: preferences
-        popup_module.scanner.refresh_catalog = lambda _context: None
+        popup_module.scanner.refresh_catalog = lambda _context: refresh_calls.append(True)
         popup_module.scanner.get_snapshot = lambda: SimpleNamespace(
             by_key={target.native_key: target for target in targets}
         )
@@ -856,18 +963,31 @@ class ImportGraphTests(unittest.TestCase):
             popup_module._draw_target_button = original_target
 
         self.assertEqual(labels, ["All Tabs (2)"])
+        self.assertEqual(refresh_calls, [])
         self.assertEqual(
-            drawn,
+            [
+                (
+                    key,
+                    {
+                        name: value
+                        for name, value in kwargs.items()
+                        if name != "draw_state"
+                    },
+                )
+                for key, kwargs in drawn
+            ],
             [
                 ("A", {"compact": True, "show_category_icon": True}),
                 ("B", {"compact": True, "show_category_icon": True}),
             ],
         )
+        self.assertTrue(all(kwargs.get("draw_state") for _key, kwargs in drawn))
 
     def test_launcher_draws_library_and_categories_popovers(self):
         popup_module = importlib.import_module("quick_n_panel.ui.popup")
         popovers = []
         operators = []
+        refresh_calls = []
 
         class FakeLayout:
             def separator(self, **_kwargs):
@@ -890,10 +1010,12 @@ class ImportGraphTests(unittest.TestCase):
         original_favorites = popup_module._draw_favorites
         original_direct = popup_module._draw_direct_categories
         popup_module.get_preferences = lambda _context: preferences
-        popup_module.scanner.refresh_catalog = lambda _context: None
+        popup_module.scanner.refresh_catalog = (
+            lambda _context: refresh_calls.append(True)
+        )
         popup_module._draw_search = lambda *_args: None
         popup_module._draw_favorites = lambda *_args: None
-        popup_module._draw_direct_categories = lambda *_args: False
+        popup_module._draw_direct_categories = lambda *_args, **_kwargs: False
         try:
             popup_module.draw_launcher_popup(FakeLayout(), SimpleNamespace())
         finally:
@@ -908,6 +1030,7 @@ class ImportGraphTests(unittest.TestCase):
             ["QNP_PT_launcher_library_popover", "QNP_PT_launcher_categories_popover"],
         )
         self.assertEqual(operators[0][0], "quick_n_panel.open_configuration")
+        self.assertEqual(refresh_calls, [])
 
     def test_all_tabs_category_icon_uses_group_and_unassigned_fallbacks(self):
         popup_module = importlib.import_module("quick_n_panel.ui.popup")
@@ -1358,8 +1481,10 @@ class ImportGraphTests(unittest.TestCase):
 
         original_refresh = launcher_module.scanner.refresh_catalog
         original_items = launcher_module._search_target_items
-        launcher_module.scanner.refresh_catalog = lambda _context: None
-        launcher_module._search_target_items = lambda _operator, _context: [("target",)]
+        launcher_module.scanner.refresh_catalog = lambda _context, **_kwargs: None
+        launcher_module._search_target_items = (
+            lambda _operator, _context, **_kwargs: [("target",)]
+        )
         try:
             search_result = launcher_module.QNP_OT_SearchTargets().invoke(context, None)
             group_result = groups_module.QNP_OT_AssignTargetGroup().invoke(context, None)

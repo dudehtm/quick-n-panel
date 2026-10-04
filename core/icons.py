@@ -19,6 +19,7 @@ _retired_preview_collections = []
 _preview_cleanup_timer_registered = False
 _preview_cleanup_waiting_for_redraw = False
 _bundled_icon_paths = {}
+_bundled_icon_values = {}
 _bundled_icon_choice_cache = [
     ("NONE", "Blender Icon", "Use the selected Blender fallback icon", "BLENDER", 0)
 ]
@@ -62,6 +63,7 @@ def register():
         _accent_previews = None
         _remove_preview_collections((new_custom, new_accent))
         _bundled_icon_paths.clear()
+        _bundled_icon_values.clear()
         _bundled_icon_choice_cache[:] = [
             ("NONE", "Blender Icon", "Use the selected Blender fallback icon", "BLENDER", 0)
         ]
@@ -79,6 +81,7 @@ def unregister():
     _custom_previews = None
     _accent_previews = None
     _retired_preview_collections.clear()
+    _bundled_icon_values.clear()
     _bundled_icon_paths.clear()
     _bundled_icon_choice_cache[:] = [
         ("NONE", "Blender Icon", "Use the selected Blender fallback icon", "BLENDER", 0)
@@ -95,6 +98,7 @@ def refresh_icon_previews():
 
     previous_collections = (_custom_previews, _accent_previews)
     previous_paths = dict(_bundled_icon_paths)
+    previous_values = dict(_bundled_icon_values)
     previous_choices = list(_bundled_icon_choice_cache)
     new_custom = bpy.utils.previews.new()
     try:
@@ -111,6 +115,8 @@ def refresh_icon_previews():
         _custom_previews, _accent_previews = previous_collections
         _bundled_icon_paths.clear()
         _bundled_icon_paths.update(previous_paths)
+        _bundled_icon_values.clear()
+        _bundled_icon_values.update(previous_values)
         _bundled_icon_choice_cache[:] = previous_choices
         _remove_preview_collections((new_custom, new_accent))
         raise
@@ -217,8 +223,14 @@ def bundled_icon_choices():
 
 
 def bundled_icon_value(identifier: str) -> int:
+    if identifier in _bundled_icon_values:
+        return _bundled_icon_values[identifier]
     filepath = _bundled_icon_paths.get(identifier)
-    return custom_icon_value(str(filepath)) if filepath else 0
+    if not filepath:
+        return 0
+    icon_value = custom_icon_value(str(filepath))
+    _bundled_icon_values[identifier] = icon_value
+    return icon_value
 
 
 def has_bundled_icon(identifier: str) -> bool:
@@ -268,6 +280,8 @@ def migrate_bundled_icon_values(preferences) -> None:
 
 
 def custom_icon_value(filepath: str) -> int:
+    if not filepath:
+        return 0
     color_mode, tint_color = _current_icon_style()
     return _styled_icon_value(filepath, color_mode, tint_color)
 
@@ -646,6 +660,7 @@ def _is_managed_png_bytes(data: bytes) -> bool:
 
 def _refresh_bundled_icons():
     _bundled_icon_paths.clear()
+    _bundled_icon_values.clear()
     choices = [
         ("NONE", "Blender Icon", "Use the selected Blender fallback icon", "BLENDER", 0)
     ]

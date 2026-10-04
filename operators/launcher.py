@@ -17,7 +17,7 @@ from ..preferences import (
 _search_item_cache = []
 
 
-def _search_target_items(_operator, context):
+def _search_target_items(_operator, context, *, snapshot=None):
     global _search_item_cache
 
     preferences = get_preferences(context)
@@ -25,7 +25,7 @@ def _search_target_items(_operator, context):
         _search_item_cache = []
         return _search_item_cache
 
-    snapshot = scanner.refresh_catalog(context)
+    snapshot = snapshot or scanner.refresh_catalog(context)
     available_keys = snapshot.by_key
     favorite_order = {
         key: index for index, key in enumerate(favorite_keys(preferences)) if key
@@ -109,8 +109,8 @@ class QNP_OT_SearchTargets(bpy.types.Operator):
     target_key: EnumProperty(name="Sidebar Tab", items=_search_target_items)
 
     def invoke(self, context, _event):
-        scanner.refresh_catalog(context)
-        items = _search_target_items(self, context)
+        scanner.refresh_catalog(context, force=True)
+        items = _search_target_items(self, context, snapshot=scanner.get_snapshot())
         if not items:
             self.report({"INFO"}, "No searchable sidebar tabs were detected")
             return {"CANCELLED"}

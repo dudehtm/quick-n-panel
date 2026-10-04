@@ -26,13 +26,23 @@ def draw_launcher_popup(layout, context):
         layout.label(text="Preferences unavailable", icon="ERROR")
         return
 
-    scanner.refresh_catalog(context)
+    snapshot = scanner.get_snapshot()
+    draw_state = _popup_draw_state(preferences, snapshot)
     layout.separator(factor=0.2)
     content = layout.row(align=False)
-    _draw_search(content, context, preferences)
-    _draw_favorites(content, context, preferences)
+    _draw_search(content, context, preferences, draw_state)
+    previous_cache = scanner.set_active_availability_cache(draw_state["availability"])
+    try:
+        _draw_favorites(content, context, preferences)
+    finally:
+        scanner.set_active_availability_cache(previous_cache)
     layout.separator(factor=0.2)
-    if _draw_direct_categories(layout, context):
+    if _draw_direct_categories(
+        layout,
+        context,
+        snapshot=snapshot,
+        availability_cache=draw_state["availability"],
+    ):
         layout.separator(factor=0.2)
 
     bottom = layout.row(align=True)
@@ -54,8 +64,21 @@ def draw_launcher_popup(layout, context):
     )
 
 
-def _draw_direct_categories(layout, context) -> bool:
-    categories = scanner.available_direct_categories(context)
+def _draw_direct_categories(
+    layout,
+    context,
+    *,
+    snapshot=None,
+    availability_cache=None,
+) -> bool:
+    if snapshot is None and availability_cache is None:
+        categories = scanner.available_direct_categories(context)
+    else:
+        categories = scanner.available_direct_categories(
+            context,
+            snapshot=snapshot,
+            availability_cache=availability_cache,
+        )
     if not categories:
         return False
 
@@ -76,8 +99,9 @@ def draw_library_popover(layout, context):
         layout.label(text="Preferences unavailable", icon="ERROR")
         return
 
-    scanner.refresh_catalog(context)
-    available_keys = scanner.get_snapshot().by_key
+    snapshot = scanner.get_snapshot()
+    available_keys = snapshot.by_key
+    draw_state = _popup_draw_state(preferences, snapshot)
     available_targets, _grouped = _library_contents(preferences, available_keys)
     layout.label(text=f"All Tabs ({len(available_targets)})", icon="BOOKMARKS")
 
@@ -99,6 +123,7 @@ def draw_library_popover(layout, context):
             target.native_key,
             compact=True,
             show_category_icon=True,
+            draw_state=draw_state,
         )
 
 
@@ -108,8 +133,8 @@ def draw_categories_popover(layout, context):
         layout.label(text="Preferences unavailable", icon="ERROR")
         return
 
-    scanner.refresh_catalog(context)
-    _draw_categories_grid(layout, context, preferences)
+    snapshot = scanner.get_snapshot()
+    _draw_categories_grid(layout, context, preferences, snapshot=snapshot)
 
 
 def reset_popup_state(context):
@@ -119,8 +144,10 @@ def reset_popup_state(context):
         setattr(window_manager, _LAUNCHER_FAVORITE_INDEX_PROPERTY, 0)
 
 
-def _draw_categories_grid(layout, context, preferences):
-    available_keys = scanner.get_snapshot().by_key
+def _draw_categories_grid(layout, context, preferences, *, snapshot=None, draw_state=None):
+    snapshot = snapshot or scanner.get_snapshot()
+    draw_state = draw_state or _popup_draw_state(preferences, snapshot)
+    available_keys = snapshot.by_key
     available_targets, grouped = _library_contents(preferences, available_keys)
 
     populated = [entry for entry in grouped if entry[1]]
@@ -134,6 +161,7 @@ def _draw_categories_grid(layout, context, preferences):
             preferences,
             populated,
             available_count=len(available_targets),
+            draw_state=draw_state,
         )
 
     if empty:
@@ -186,7 +214,8 @@ def _library_contents(preferences, available_keys):
     return available_targets, grouped
 
 
-def _draw_search(parent, context, preferences):
+def _draw_search(parent, context, preferences, draw_state=None):
+    draw_state = draw_state or _popup_draw_state(preferences, scanner.get_snapshot())
     box = parent.box()
     box.ui_units_x = 8.0
     column = box.column(align=True)
@@ -219,13 +248,20 @@ def _draw_search(parent, context, preferences):
         empty.label(text="No recent tab")
     else:
         for recent in recent_targets[:3]:
-            _draw_target_button(column, context, preferences, recent.native_key)
+            _draw_target_button(
+                column,
+                context,
+                preferences,
+                recent.native_key,
+                draw_state=draw_state,
+            )
 
-    _draw_new_addons(column, context, preferences)
+    _draw_new_addons(column, context, preferences, draw_state)
 
 
-def _draw_new_addons(parent, context, preferences):
-    available_keys = scanner.get_snapshot().by_key
+def _draw_new_addons(parent, context, preferences, draw_state=None):
+    draw_state = draw_state or _popup_draw_state(preferences, scanner.get_snapshot())
+    available_keys = draw_state["snapshot"].by_key
     entries = []
     for entry in new_addon_entries(preferences):
         target = preferences.targets.get(entry.target_key)
@@ -251,6 +287,7 @@ def _draw_new_addons(parent, context, preferences):
             compact=True,
             label_prefix=module_display_name(entry.addon_key),
             dismiss_addon_key=entry.addon_key,
+            draw_state=draw_state,
         )
 
 
@@ -301,6 +338,7 @@ def _draw_populated_categories(
     populated,
     *,
     available_count,
+    draw_state=None,
 ):
     columns_row = layout.split(factor=0.5, align=True)
     columns = (
@@ -318,6 +356,7 @@ def _draw_populated_categories(
             group,
             targets,
             can_add=len(targets) < available_count,
+            draw_state=draw_state,
         )
         heights[column_index] += _estimated_group_height(len(targets))
 
@@ -326,7 +365,16 @@ def _estimated_group_height(target_count: int) -> float:
     return 2.0 + target_count
 
 
-def _draw_group(parent, context, preferences, group, targets, *, can_add):
+def _draw_group(
+    parent,
+    context,
+    preferences,
+    group,
+    targets,
+    *,
+    can_add,
+    draw_state=None,
+):
     box = parent.box()
     column = box.column(align=True)
     icon_name, icon_value = _resolve_group_icon(group)
@@ -341,14 +389,10 @@ def _draw_group(parent, context, preferences, group, targets, *, can_add):
     column.separator(factor=0.6)
 
     for target in targets:
-        _draw_target_button(
-            column,
-            context,
-            preferences,
-            target.native_key,
-            compact=True,
-            show_favorite=True,
-        )
+        kwargs = {"compact": True, "show_favorite": True}
+        if draw_state is not None:
+            kwargs["draw_state"] = draw_state
+        _draw_target_button(column, context, preferences, target.native_key, **kwargs)
 
 
 def _draw_empty_group(parent, group, *, can_add):
@@ -384,6 +428,7 @@ def _draw_target_button(
     show_favorite=False,
     label_prefix="",
     dismiss_addon_key="",
+    draw_state=None,
 ):
     target = preferences.targets.get(target_key)
     if target is None:
@@ -392,21 +437,30 @@ def _draw_target_button(
         row.label(text="Missing target", icon="ERROR")
         return
 
-    exists = scanner.target_exists(target_key)
-    available = exists and scanner.target_is_context_available(target_key, context)
+    draw_state = draw_state or _popup_draw_state(preferences, scanner.get_snapshot())
+    snapshot = draw_state["snapshot"]
+    availability_cache = draw_state["availability"]
+    exists = target_key in snapshot.by_key
+    available = exists and scanner.target_is_context_available(
+        target_key,
+        context,
+        snapshot=snapshot,
+        availability_cache=availability_cache,
+    )
     row = parent.row(align=True)
     row.scale_y = 1.0 if compact else 1.35
 
     text = display_name_for(target)
     if label_prefix:
         text = f"{label_prefix}: {text}"
-    icon_name, icon_value = icons.resolve_icon(
-        target.icon_name,
-        target.icon_path,
-        target.bundled_icon,
-    )
     if preferences.display_mode == "NAME":
         icon_name, icon_value = "NONE", 0
+    else:
+        icon_name, icon_value = icons.resolve_icon(
+            target.icon_name,
+            target.icon_path,
+            target.bundled_icon,
+        )
     if not exists:
         icon_name, icon_value = "ERROR", 0
 
@@ -427,7 +481,7 @@ def _draw_target_button(
         else:
             row.label(text="", icon=icon_name)
     if show_favorite:
-        is_favorite = target_key in favorite_keys(preferences)
+        is_favorite = target_key in draw_state["favorite_keys"]
         favorite = row.operator(
             "quick_n_panel.toggle_favorite",
             text="",
@@ -467,3 +521,13 @@ def _last_opened_timestamp(target) -> float:
         return float(target.last_opened_at)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _popup_draw_state(preferences, snapshot):
+    return {
+        "snapshot": snapshot,
+        "availability": {},
+        "favorite_keys": frozenset(
+            favorite_keys(preferences) if hasattr(preferences, "favorites") else ()
+        ),
+    }
