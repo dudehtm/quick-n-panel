@@ -21,7 +21,7 @@ from .constants import (
 
 
 FORMAT_NAME = "quick_n_panel.preferences"
-FORMAT_VERSION = 8
+FORMAT_VERSION = 9
 SIDECAR_FILENAME = "preferences.json"
 LEGACY_SIDECAR_FILENAMES = ("preferences-v1.json",)
 MAX_SIDECAR_BYTES = 8 * 1024 * 1024
@@ -65,6 +65,8 @@ ROOT_FIELDS = (
     "icon_tint_color",
     "max_search_results",
     "include_builtin_tabs",
+    "auto_open_library",
+    "auto_open_categories",
 )
 
 COLLECTION_FIELDS = {
@@ -117,6 +119,8 @@ _ROOT_BOOL_FIELDS = {
     "default_group_icons_initialized",
     "starter_recents_pending",
     "include_builtin_tabs",
+    "auto_open_library",
+    "auto_open_categories",
     "new_addons_initialized",
     "observed_addons_initialized",
 }
@@ -184,6 +188,8 @@ _ROOT_DEFAULTS = {
     "icon_tint_color": (1.0, 1.0, 1.0),
     "max_search_results": 128,
     "include_builtin_tabs": False,
+    "auto_open_library": False,
+    "auto_open_categories": False,
 }
 
 
@@ -991,6 +997,18 @@ def _migrate_v7_to_v8(payload: dict) -> dict:
     return migrated
 
 
+def _migrate_v8_to_v9(payload: dict) -> dict:
+    """Add the opt-in experimental startup popover choices."""
+    migrated = dict(payload)
+    source_root = payload.get("root")
+    root = dict(source_root) if isinstance(source_root, dict) else {}
+    root.setdefault("auto_open_library", False)
+    root.setdefault("auto_open_categories", False)
+    migrated["root"] = root
+    migrated["version"] = 9
+    return migrated
+
+
 def _legacy_group_memberships(record):
     group_id = record.get("group_id", "")
     if not group_id:
@@ -1010,6 +1028,7 @@ _FORMAT_MIGRATIONS = {
     5: _migrate_v5_to_v6,
     6: _migrate_v6_to_v7,
     7: _migrate_v7_to_v8,
+    8: _migrate_v8_to_v9,
 }
 
 

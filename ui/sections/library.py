@@ -7,6 +7,14 @@ from .groups import _draw_external_icon_controls
 
 
 def draw(layout, _context, preferences):
+    startup_box = layout.box()
+    startup_box.label(text="F5 Startup (Experimental)", icon="INFO")
+    startup_box.prop(preferences, "auto_open_library")
+    startup_box.label(
+        text="Open this popover with the launcher.",
+        icon="INFO",
+    )
+
     snapshot = scanner.get_snapshot()
     summary = layout.row(align=True)
     summary.label(

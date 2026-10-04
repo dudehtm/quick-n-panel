@@ -356,6 +356,83 @@ class ImportGraphTests(unittest.TestCase):
             42,
         )
 
+    def test_favorite_lists_do_not_draw_default_filter_controls(self):
+        lists_module = importlib.import_module("quick_n_panel.ui.lists")
+
+        for list_class in (
+            lists_module.QNP_UL_LauncherFavorites,
+            lists_module.QNP_UL_FavoriteConfig,
+        ):
+            self.assertIsNone(list_class.draw_filter(None, None, None))
+            self.assertEqual(
+                list_class.filter_items(None, None, None, "favorites"),
+                ([], []),
+            )
+
+    def test_experimental_startup_popovers_are_mutually_exclusive(self):
+        preferences_module = importlib.import_module("quick_n_panel.preferences")
+        preferences = SimpleNamespace(
+            auto_open_library=True,
+            auto_open_categories=True,
+        )
+        original_updated = preferences_module._preferences_updated
+        updates = []
+        preferences_module._preferences_updated = (
+            lambda *_args: updates.append(True)
+        )
+        try:
+            preferences_module._auto_open_panel_updated(preferences, None)
+        finally:
+            preferences_module._preferences_updated = original_updated
+
+        self.assertTrue(preferences.auto_open_library)
+        self.assertFalse(preferences.auto_open_categories)
+        self.assertEqual(updates, [True])
+
+    def test_f5_startup_popover_reuses_existing_panel(self):
+        launcher_module = importlib.import_module("quick_n_panel.operators.launcher")
+        bpy = importlib.import_module("bpy")
+
+        class FakeTimers:
+            def __init__(self):
+                self.callback = None
+
+            def register(self, callback, *, first_interval):
+                self.callback = callback
+                self.first_interval = first_interval
+
+            def unregister(self, callback):
+                if self.callback is callback:
+                    self.callback = None
+
+        timers = FakeTimers()
+        calls = []
+        original_timers = getattr(bpy.app, "timers", None)
+        original_ops = getattr(bpy, "ops", None)
+        bpy.app.timers = timers
+        bpy.ops = SimpleNamespace(
+            wm=SimpleNamespace(
+                call_panel=lambda **kwargs: calls.append(kwargs) or {"FINISHED"}
+            )
+        )
+        try:
+            scheduled = launcher_module.schedule_auto_open_panel(
+                SimpleNamespace(window=None, area=None),
+                SimpleNamespace(auto_open_library=True, auto_open_categories=False),
+            )
+            self.assertTrue(scheduled)
+            self.assertIsNotNone(timers.callback)
+            self.assertIsNone(timers.callback())
+        finally:
+            launcher_module.cancel_pending_auto_open()
+            bpy.app.timers = original_timers
+            bpy.ops = original_ops
+
+        self.assertEqual(
+            calls,
+            [{"name": "QNP_PT_launcher_library_popover", "keep_open": True}],
+        )
+
     def test_bundled_icon_value_uses_cached_preview_id(self):
         icons_module = importlib.import_module("quick_n_panel.core.icons")
         original_values = dict(icons_module._bundled_icon_values)

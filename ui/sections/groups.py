@@ -5,6 +5,14 @@ from ...preferences import display_name_for, favorite_keys, ordered_group_target
 
 
 def draw(layout, context, preferences):
+    startup_box = layout.box()
+    startup_box.label(text="F5 Startup (Experimental)", icon="INFO")
+    startup_box.prop(preferences, "auto_open_categories")
+    startup_box.label(
+        text="Open this popover with the launcher.",
+        icon="INFO",
+    )
+
     list_row = layout.row()
     list_row.template_list(
         "QNP_UL_launcher_groups",

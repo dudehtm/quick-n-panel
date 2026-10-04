@@ -53,6 +53,16 @@ def _preferences_updated(_preferences, _context):
     persistence.request_save()
 
 
+def _auto_open_panel_updated(preferences, context):
+    if preferences.auto_open_library:
+        if preferences.auto_open_categories:
+            preferences.auto_open_categories = False
+    elif preferences.auto_open_categories:
+        if preferences.auto_open_library:
+            preferences.auto_open_library = False
+    _preferences_updated(preferences, context)
+
+
 class QNP_Preferences(bpy.types.AddonPreferences):
     bl_idname = ADDON_PACKAGE
 
@@ -174,6 +184,18 @@ class QNP_Preferences(bpy.types.AddonPreferences):
         description="Include built-in Blender sidebar categories in the library",
         default=False,
         update=_preferences_updated,
+    )
+    auto_open_library: BoolProperty(
+        name="Open Library with F5 (Exp.)",
+        description="Experimental: also open the existing Library popover when F5 opens the launcher",
+        default=False,
+        update=_auto_open_panel_updated,
+    )
+    auto_open_categories: BoolProperty(
+        name="Open Categories with F5 (Exp.)",
+        description="Experimental: also open the existing Categories popover when F5 opens the launcher",
+        default=False,
+        update=_auto_open_panel_updated,
     )
 
     def draw(self, context):

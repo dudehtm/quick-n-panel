@@ -102,6 +102,8 @@ class FakePreferences:
         self.icon_tint_color = (1.0, 1.0, 1.0)
         self.max_search_results = 128
         self.include_builtin_tabs = False
+        self.auto_open_library = False
+        self.auto_open_categories = False
         self.groups = FakeCollection(group_defaults)
         self.targets = FakeCollection(target_defaults)
         self.favorites = FakeCollection(favorite_defaults)
@@ -128,6 +130,7 @@ def configured_preferences():
     preferences.icon_tint_color = (0.2, 0.4, 0.8)
     preferences.max_search_results = 64
     preferences.include_builtin_tabs = True
+    preferences.auto_open_library = True
 
     group = preferences.groups.add()
     group.name = "custom"
@@ -339,6 +342,18 @@ class PersistenceTests(unittest.TestCase):
         self.assertEqual(migrated["version"], persistence.FORMAT_VERSION)
         self.assertFalse(migrated["root"]["observed_addons_initialized"])
         self.assertEqual(migrated["observed_addons"], [])
+
+    def test_v8_snapshot_adds_experimental_startup_defaults(self):
+        payload = persistence.snapshot_preferences(configured_preferences())
+        payload["version"] = 8
+        payload["root"].pop("auto_open_library")
+        payload["root"].pop("auto_open_categories")
+
+        migrated = persistence._validate_payload(payload)
+
+        self.assertEqual(migrated["version"], persistence.FORMAT_VERSION)
+        self.assertFalse(migrated["root"]["auto_open_library"])
+        self.assertFalse(migrated["root"]["auto_open_categories"])
 
     def test_invalid_uniform_icon_color_is_rejected(self):
         payload = persistence.snapshot_preferences(configured_preferences())

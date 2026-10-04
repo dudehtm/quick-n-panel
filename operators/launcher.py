@@ -15,6 +15,80 @@ from ..preferences import (
 
 
 _search_item_cache = []
+_auto_open_panel_callbacks = set()
+_AUTO_OPEN_PANEL_ATTEMPTS = 10
+
+
+def schedule_auto_open_panel(context, preferences, *, panel_name=None):
+    if panel_name is None:
+        panel_name = ""
+        if getattr(preferences, "auto_open_library", False):
+            panel_name = "QNP_PT_launcher_library_popover"
+        elif getattr(preferences, "auto_open_categories", False):
+            panel_name = "QNP_PT_launcher_categories_popover"
+    if not panel_name:
+        return False
+
+    timers = getattr(getattr(bpy, "app", None), "timers", None)
+    if timers is None or not hasattr(timers, "register"):
+        return False
+
+    window = getattr(context, "window", None)
+    area = getattr(context, "area", None)
+    region = getattr(context, "region", None)
+    attempts = 0
+
+    def open_panel_after_launcher():
+        nonlocal attempts
+        attempts += 1
+        try:
+            current_context = bpy.context
+            temp_override = getattr(current_context, "temp_override", None)
+            if callable(temp_override) and window is not None and area is not None:
+                override = {"window": window, "area": area}
+                if region is not None:
+                    override["region"] = region
+                with temp_override(**override):
+                    result = bpy.ops.wm.call_panel(
+                        name=panel_name,
+                        keep_open=True,
+                    )
+            else:
+                result = bpy.ops.wm.call_panel(
+                    name=panel_name,
+                    keep_open=True,
+                )
+            if result in ({"FINISHED"}, {"RUNNING_MODAL"}, {"INTERFACE"}):
+                _auto_open_panel_callbacks.discard(open_panel_after_launcher)
+                return None
+        except (AttributeError, ReferenceError, RuntimeError, TypeError, ValueError):
+            pass
+
+        if attempts >= _AUTO_OPEN_PANEL_ATTEMPTS:
+            _auto_open_panel_callbacks.discard(open_panel_after_launcher)
+            return None
+        return 0.05
+
+    try:
+        _auto_open_panel_callbacks.add(open_panel_after_launcher)
+        timers.register(open_panel_after_launcher, first_interval=1.0)
+    except (AttributeError, RuntimeError, ValueError):
+        _auto_open_panel_callbacks.discard(open_panel_after_launcher)
+        return False
+    return True
+
+
+def cancel_pending_auto_open():
+    timers = getattr(getattr(bpy, "app", None), "timers", None)
+    for callback in tuple(_auto_open_panel_callbacks):
+        try:
+            if timers is not None and hasattr(timers, "unregister"):
+                is_registered = getattr(timers, "is_registered", None)
+                if not callable(is_registered) or is_registered(callback):
+                    timers.unregister(callback)
+        except (AttributeError, RuntimeError, ValueError):
+            pass
+        _auto_open_panel_callbacks.discard(callback)
 
 
 def _search_target_items(_operator, context, *, snapshot=None):
@@ -68,6 +142,8 @@ class QNP_OT_ShowLauncher(bpy.types.Operator):
     bl_description = "Open the quick sidebar tab launcher"
     bl_options = {"INTERNAL"}
 
+    auto_open_panel: StringProperty(options={"HIDDEN"})
+
     @classmethod
     def poll(cls, context):
         return context.area is not None and context.area.type == "VIEW_3D"
@@ -85,6 +161,12 @@ class QNP_OT_ShowLauncher(bpy.types.Operator):
         from ..ui.popup import reset_popup_state
 
         reset_popup_state(context)
+        if preferences.auto_open_library:
+            self.auto_open_panel = "QNP_PT_launcher_library_popover"
+        elif preferences.auto_open_categories:
+            self.auto_open_panel = "QNP_PT_launcher_categories_popover"
+        else:
+            self.auto_open_panel = ""
         return context.window_manager.invoke_popup(
             self,
             width=preferences.compact_popup_width,
@@ -94,6 +176,16 @@ class QNP_OT_ShowLauncher(bpy.types.Operator):
         from ..ui.popup import draw_launcher_popup
 
         draw_launcher_popup(self.layout, context)
+        if self.auto_open_panel:
+            panel_name = self.auto_open_panel
+            self.auto_open_panel = ""
+            preferences = get_preferences(context)
+            if preferences is not None:
+                schedule_auto_open_panel(
+                    context,
+                    preferences,
+                    panel_name=panel_name,
+                )
 
     def execute(self, _context):
         return {"FINISHED"}

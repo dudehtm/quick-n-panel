@@ -5,7 +5,10 @@ from bpy.props import BoolProperty, IntProperty
 
 from . import keymap, persistence
 from .core import icons, navigation, scanner
-from .operators.launcher import CLASSES as LAUNCHER_CLASSES
+from .operators.launcher import (
+    CLASSES as LAUNCHER_CLASSES,
+    cancel_pending_auto_open,
+)
 from .operators.navigation import CLASSES as NAVIGATION_CLASSES
 from .operators.organization import CLASSES as ORGANIZATION_CLASSES
 from .preferences import (
@@ -120,6 +123,7 @@ def _cleanup_runtime():
     for cleanup in (
         persistence.cancel_pending_save,
         navigation.cancel_pending_activations,
+        cancel_pending_auto_open,
         keymap.unregister,
         scanner.unregister_handlers,
         icons.unregister,

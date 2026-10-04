@@ -136,6 +136,12 @@ class QNP_UL_Targets(bpy.types.UIList):
 class QNP_UL_LauncherFavorites(bpy.types.UIList):
     bl_idname = "QNP_UL_launcher_favorites"
 
+    def draw_filter(self, _context, _layout):
+        pass
+
+    def filter_items(self, _context, _data, _property_name):
+        return [], []
+
     def draw_item(
         self,
         context,
@@ -160,6 +166,12 @@ class QNP_UL_LauncherFavorites(bpy.types.UIList):
 
 class QNP_UL_FavoriteConfig(bpy.types.UIList):
     bl_idname = "QNP_UL_launcher_favorite_config"
+
+    def draw_filter(self, _context, _layout):
+        pass
+
+    def filter_items(self, _context, _data, _property_name):
+        return [], []
 
     def draw_item(
         self,

@@ -47,8 +47,11 @@ Run every release candidate in Blender 5.0, 5.1, and 5.2.
 ## Navigation
 
 - Invoke the launcher with `F5` over a 3D View.
-- Confirm `F5` opens the launcher with Library and Categories closed.
-- Confirm Library is not opened automatically in the current release.
+- Confirm `F5` opens the launcher with Library and Categories closed by default.
+- Enable one `F5 Startup (Experimental)` option in its `Library` or
+  `Categories` section, reopen with `F5`, and confirm the selected existing
+  popover opens automatically with the launcher.
+- Enable the other experimental option and confirm the first one is disabled.
 - Open a target while the sidebar is closed.
 - Confirm the native tab becomes active and the popup closes.
 - Repeat with two 3D Views and verify only the invoking area changes.
@@ -67,6 +70,7 @@ Run every release candidate in Blender 5.0, 5.1, and 5.2.
 - Reorder favorites in the scrollable configuration list and confirm the popup stays clean.
 - Confirm the launcher shows ten favorite rows and scrolls internally to reach later entries.
 - Confirm the configuration list scrolls internally and keeps its actions available.
+- Confirm neither Favorites list displays a second search/filter control.
 - Confirm the launcher shows separate `Library` and `Categories` buttons with
   matching visual treatment.
 - Confirm populated categories follow the order configured in Categories, not
@@ -105,6 +109,7 @@ Run every release candidate in Blender 5.0, 5.1, and 5.2.
 - Test UI scales 0.75, 1.0, 1.5, and 2.0.
 - Invoke near all four screen edges.
 - Test name-only and combined icon-and-name modes.
+- Confirm `F5 Startup (Experimental)` is disabled by default and clearly labeled.
 - Load valid and missing custom PNG icons.
 - Confirm missing icons use a safe fallback.
 - Confirm all 16 included `QNP_*` icons appear in both icon selectors.

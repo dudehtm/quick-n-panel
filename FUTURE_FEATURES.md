@@ -6,15 +6,16 @@ y el lenguaje visual existentes antes de implementarse.
 
 ## Modo edicion del launcher
 
-Estado: propuesta futura, no implementada.
+Estado: parcialmente implementado como opcion experimental.
 
 El Modo edicion permitiria personalizar visualmente el launcher sin convertir la
 configuracion normal en una interfaz compleja.
 
 Posibles funciones:
 
-- decidir si `F5` abre solo el launcher o entra directamente en `Library`;
-- activar o desactivar la apertura automatica de `Library`;
+- decidir si `F5` abre solo el launcher o tambien despliega `Library` o
+  `Categories`;
+- activar o desactivar la apertura automatica de `Library` o `Categories`;
 - elegir que bloques aparecen en el launcher;
 - cambiar la posicion de `Library`, `Categories` y `Configure`;
 - ordenar categorias directamente desde el popup;
@@ -23,9 +24,12 @@ Posibles funciones:
 - ajustar columnas, separacion y densidad de las tarjetas;
 - seleccionar una estrategia de overflow: scroll, lista o paginacion.
 
-La opcion de apertura automatica de `Library` debe permanecer desactivada por
-defecto si se implementa. La primera version debe conservar el popup principal
-y no depender de abrir un popover anidado mediante timers o APIs privadas.
+Las opciones de apertura automatica permanecen desactivadas por defecto y solo
+una puede activarse a la vez desde las secciones `Library` y `Categories`. La
+implementacion experimental conserva el popup principal y reutiliza los
+popovers registrados mediante una llamada diferida de la API publica de
+Blender; el comportamiento de posicion y apilado puede variar entre versiones
+de Blender.
 
 ## Navegacion de listas grandes
 
