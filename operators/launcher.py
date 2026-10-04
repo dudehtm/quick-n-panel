@@ -1,11 +1,13 @@
 """Quick launcher and native search operators."""
 
 import bpy
-from bpy.props import EnumProperty
+from bpy.props import EnumProperty, StringProperty
 
+from .. import persistence
 from ..core import icons, navigation, scanner
 from ..preferences import (
     display_name_for,
+    dismiss_new_addon,
     ensure_starter_recents,
     favorite_keys,
     get_preferences,
@@ -125,7 +127,24 @@ class QNP_OT_SearchTargets(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class QNP_OT_DismissNewAddon(bpy.types.Operator):
+    bl_idname = "quick_n_panel.dismiss_new_addon"
+    bl_label = "Dismiss New Add-on"
+    bl_description = "Hide this newly detected add-on"
+    bl_options = {"INTERNAL"}
+
+    addon_key: StringProperty(options={"HIDDEN"})
+
+    def execute(self, context):
+        preferences = get_preferences(context)
+        if preferences is None or not dismiss_new_addon(preferences, self.addon_key):
+            return {"CANCELLED"}
+        persistence.request_save()
+        return {"FINISHED"}
+
+
 CLASSES = (
     QNP_OT_ShowLauncher,
     QNP_OT_SearchTargets,
+    QNP_OT_DismissNewAddon,
 )

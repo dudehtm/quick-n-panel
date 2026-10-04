@@ -86,7 +86,7 @@ class ImportGraphTests(unittest.TestCase):
         preferences = importlib.import_module("quick_n_panel.preferences")
         properties = importlib.import_module("quick_n_panel.properties")
 
-        self.assertEqual(len(registration.CLASSES), 36)
+        self.assertEqual(len(registration.CLASSES), 39)
         identifiers = [
             getattr(cls, "bl_idname", cls.__name__)
             for cls in registration.CLASSES
@@ -102,7 +102,14 @@ class ImportGraphTests(unittest.TestCase):
         self.assertNotIn("QNP_PT_launcher_shortcuts", identifiers)
         self.assertEqual(
             set(persistence.ROOT_FIELDS),
-            set(preferences.QNP_Preferences.__annotations__) - {"groups", "targets", "favorites"},
+            set(preferences.QNP_Preferences.__annotations__)
+            - {
+                "groups",
+                "targets",
+                "favorites",
+                "new_addons",
+                "observed_addons",
+            },
         )
         self.assertEqual(
             set(persistence.COLLECTION_FIELDS["groups"]),
@@ -116,6 +123,57 @@ class ImportGraphTests(unittest.TestCase):
             set(persistence.COLLECTION_FIELDS["favorites"]),
             set(properties.QNP_PG_Favorite.__annotations__),
         )
+        self.assertEqual(
+            set(persistence.COLLECTION_FIELDS["new_addons"]),
+            set(properties.QNP_PG_NewAddon.__annotations__),
+        )
+        self.assertEqual(
+            set(persistence.COLLECTION_FIELDS["observed_addons"]),
+            set(properties.QNP_PG_ObservedAddon.__annotations__),
+        )
+
+    def test_scanner_detects_same_key_addon_reincarnation(self):
+        scanner = importlib.import_module("quick_n_panel.core.scanner")
+
+        class FakeAddon:
+            def __init__(self, module, pointer):
+                self.module = module
+                self.pointer = pointer
+
+            def as_pointer(self):
+                return self.pointer
+
+        addon = FakeAddon("bl_ext.user_default.sample", 10)
+        context = SimpleNamespace(
+            preferences=SimpleNamespace(addons=(addon,)),
+        )
+        scanner.invalidate_catalog()
+        try:
+            keys, incarnations = scanner._enabled_addon_state(context)
+            self.assertEqual(keys, {"bl_ext.user_default.sample"})
+            scanner._remember_addon_state(keys, incarnations)
+
+            addon.pointer = 20
+            keys, incarnations = scanner._enabled_addon_state(context)
+            self.assertEqual(
+                scanner._transitioned_addon_keys(keys, incarnations),
+                {"bl_ext.user_default.sample"},
+            )
+            scanner._remember_addon_state(
+                keys,
+                incarnations,
+                {"bl_ext.user_default.sample": (("SAMPLE_PT_main", object()),)},
+            )
+            self.assertEqual(
+                scanner._transitioned_addon_keys(
+                    keys,
+                    incarnations,
+                    {"bl_ext.user_default.sample": (("SAMPLE_PT_main", object()),)},
+                ),
+                {"bl_ext.user_default.sample"},
+            )
+        finally:
+            scanner.invalidate_catalog()
 
     def test_keymap_only_registers_and_unregisters_the_default_shortcut(self):
         keymap_module = importlib.import_module("quick_n_panel.keymap")
@@ -588,6 +646,65 @@ class ImportGraphTests(unittest.TestCase):
         popup_module.reset_popup_state(context)
 
         self.assertFalse(context.window_manager.qnp_empty_categories_expanded)
+
+    def test_new_addon_block_shows_only_available_three_with_dismissal(self):
+        popup_module = importlib.import_module("quick_n_panel.ui.popup")
+        labels = []
+        drawn = []
+
+        class FakeLayout:
+            def separator(self, **_kwargs):
+                pass
+
+            def label(self, *, text, **_kwargs):
+                labels.append(text)
+
+        class FakeTargets(list):
+            def get(self, target_key):
+                return next(
+                    (target for target in self if target.native_key == target_key),
+                    None,
+                )
+
+        targets = FakeTargets(
+            SimpleNamespace(
+                native_key=f"target_{index}",
+                hidden=False,
+            )
+            for index in range(4)
+        )
+        preferences = SimpleNamespace(targets=targets)
+        entries = tuple(
+            SimpleNamespace(
+                target_key=f"target_{index}",
+                addon_key=f"addon_{index}",
+            )
+            for index in range(4)
+        )
+        original_entries = popup_module.new_addon_entries
+        original_snapshot = popup_module.scanner.get_snapshot
+        original_button = popup_module._draw_target_button
+        popup_module.new_addon_entries = lambda _preferences: entries
+        popup_module.scanner.get_snapshot = lambda: SimpleNamespace(
+            by_key={target.native_key: target for target in targets}
+        )
+        popup_module._draw_target_button = (
+            lambda _parent, _context, _preferences, target_key, **kwargs: drawn.append(
+                (target_key, kwargs)
+            )
+        )
+        try:
+            popup_module._draw_new_addons(FakeLayout(), SimpleNamespace(), preferences)
+        finally:
+            popup_module.new_addon_entries = original_entries
+            popup_module.scanner.get_snapshot = original_snapshot
+            popup_module._draw_target_button = original_button
+
+        self.assertEqual(labels, ["New"])
+        self.assertEqual(len(drawn), 3)
+        self.assertEqual(drawn[0][0], "target_0")
+        self.assertEqual(drawn[0][1]["compact"], True)
+        self.assertEqual(drawn[0][1]["dismiss_addon_key"], "addon_0")
 
     def test_library_popover_draws_all_tabs_with_category_context(self):
         popup_module = importlib.import_module("quick_n_panel.ui.popup")

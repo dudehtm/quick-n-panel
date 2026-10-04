@@ -24,8 +24,25 @@ Run every release candidate in Blender 5.0, 5.1, and 5.2.
 - Confirm third-party `VIEW_3D` / `UI` tabs appear in Library.
 - Confirm built-in tabs are hidden by default.
 - Enable "Include Blender Tabs", refresh, and confirm they appear.
+- On a clean profile, open the launcher once with `F5` and confirm the first
+  scan creates no `New` notifications.
+- Install and enable an add-on from a ZIP that registers a `VIEW_3D` / `UI` panel,
+  refresh with `F5`, and confirm it appears in `New` below `Recent`.
+- Install and enable an extension from `Get Extensions`, refresh, and confirm its
+  `bl_ext.<repository>.<package>` module key is recognized.
+- Install a package without enabling it and confirm it does not appear in `New`.
+- Register or enable an add-on whose panels do not belong to an enabled module and
+  confirm it does not create a false `New` entry.
+- Confirm no more than three `New` entries are visible and each shows a dismiss
+  control.
+- Open a `New` target and confirm it disappears immediately from the block.
+- Dismiss a `New` target with `X`, reopen the launcher, and confirm it stays hidden.
 - Disable a detected add-on and confirm its saved entry becomes unavailable.
-- Re-enable that add-on and confirm customization is recovered.
+- Re-enable that add-on, refresh, and confirm it can appear as a new enable
+  transition while its saved customization is recovered.
+- Uninstall and reinstall an enabled add-on while Blender remains open, refresh,
+  and confirm the same-key reinstallation is detected when its panel classes are
+  recreated.
 
 ## Navigation
 
@@ -118,9 +135,9 @@ Run every release candidate in Blender 5.0, 5.1, and 5.2.
 
 ## Update and Recovery
 
-- Update from a package that created `preferences-v1.json` and confirm it is
-  restored into the current v2 schema without losing groups, favorites, history,
-  hidden tabs, appearance, or icon assignments.
+- Update from an older configuration snapshot and confirm it is restored into
+  the current schema without losing groups, favorites, history, hidden tabs,
+  appearance, or icon assignments.
 - Corrupt the current snapshot in an isolated test profile and confirm the `.bak`
   generation restores it.
 - Simulate a locked destination and confirm a `.pending` snapshot remains

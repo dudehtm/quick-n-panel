@@ -27,6 +27,10 @@ Quick N-panel is packaged as a modern Blender extension and provides:
 - configuration panel organized into collapsible sections;
 - dynamic, ordered favorites limited to eight entries;
 - recent access with persistent counters and timestamps;
+- a temporary `New` section below Recent for up to three newly enabled add-ons;
+- exact attribution for legacy add-ons and Blender Extensions using their enabled
+  module keys, including `bl_ext.<repository>.<package>`;
+- seven-day New entries that disappear when opened or dismissed;
 - starter Recent entries on a fresh installation, replaced by real activity;
 - native search with simplified tab names;
 - persistent configuration in `AddonPreferences`;
@@ -99,10 +103,13 @@ directory. The previous valid generation is retained as `.bak`, interrupted
 writes can recover from `.pending`, and unreadable snapshots are quarantined
 instead of overwritten.
 
-Sidecar format migrations are sequential. The current reader migrates the
-original v1 format to v2 before validation. Managed external icons are stored in
-the same extension-owned user-data directory and are deleted only after neither
-the current snapshot nor its backup references them.
+Sidecar migrations are applied sequentially before validation. Managed external
+icons are stored in the same extension-owned user-data directory and are deleted
+only after neither the current snapshot nor its backup references them.
+
+The current sidecar schema is `v8`. It stores the enabled add-on baseline
+separately from retained tab metadata so unavailable or previously seen targets do
+not suppress future enable transitions.
 
 Use `Diagnostics > Configuration Backup > Export` before uninstalling, changing
 extension repositories, moving to another profile, or transferring to another
@@ -113,7 +120,7 @@ be restored with `Import`.
 
 ```text
 core/catalog.py             Pure models and stable identity
-core/scanner.py             Detection and runtime cache
+core/scanner.py             Enabled add-on detection and runtime cache
 core/navigation.py          Tab opening, activation, and history
 core/search.py              Normalization and approximate ranking
 core/icons.py               Previews, QNP_* library, and accents
@@ -167,6 +174,15 @@ logs or screenshots.
 ## Known Limitations
 
 - Blender does not expose a universal add-on identity for every panel.
+- `New` is shown only after an add-on is enabled and registers a matching
+  `VIEW_3D` / `UI` panel; installing a package without enabling it does not create
+  a notification.
+- The first scan after a fresh install or schema migration creates a silent
+  baseline. Use `F5` or `Refresh Detection` once before testing a new install.
+- There is no public Blender event that identifies every installation. Detection
+  runs during catalog scans, not through a permanent background observer.
+- An uninstall and reinstall performed entirely while Blender and Quick N-panel
+  are closed can be indistinguishable when the add-on keeps the same module key.
 - Search uses `invoke_search_popup`; Blender controls its width and visible row
   count.
 - Native mode does not support animating the side popover as it opens.

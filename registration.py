@@ -95,8 +95,8 @@ def unregister_addon():
                 )
     finally:
         _cleanup_runtime()
-        _unregister_classes()
         _unregister_runtime_properties()
+        _unregister_classes()
         _is_registered = False
 
 
@@ -104,8 +104,8 @@ def _rollback_registration():
     global _is_registered
 
     _cleanup_runtime()
-    _unregister_classes()
     _unregister_runtime_properties()
+    _unregister_classes()
     _is_registered = False
 
 

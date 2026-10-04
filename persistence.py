@@ -21,7 +21,7 @@ from .constants import (
 
 
 FORMAT_NAME = "quick_n_panel.preferences"
-FORMAT_VERSION = 6
+FORMAT_VERSION = 8
 SIDECAR_FILENAME = "preferences.json"
 LEGACY_SIDECAR_FILENAMES = ("preferences-v1.json",)
 MAX_SIDECAR_BYTES = 8 * 1024 * 1024
@@ -30,6 +30,8 @@ MAX_PORTABLE_ARCHIVE_BYTES = MAX_PORTABLE_BACKUP_BYTES + 1024 * 1024
 MAX_PORTABLE_ARCHIVE_ENTRIES = 5000
 MAX_GROUP_RECORDS = 256
 MAX_TARGET_RECORDS = 4096
+MAX_NEW_ADDON_RECORDS = 256
+MAX_OBSERVED_ADDON_RECORDS = 4096
 SAVE_DEBOUNCE_SECONDS = 0.75
 PORTABLE_PREFERENCES_FILENAME = "preferences.json"
 
@@ -47,6 +49,8 @@ ROOT_FIELDS = (
     "default_group_icons_initialized",
     "icon_enum_schema_version",
     "favorite_index",
+    "new_addons_initialized",
+    "observed_addons_initialized",
     "favorites_schema_version",
     "favorite_1",
     "favorite_2",
@@ -96,6 +100,16 @@ COLLECTION_FIELDS = {
         "name",
         "target_key",
     ),
+    "new_addons": (
+        "name",
+        "addon_key",
+        "target_key",
+        "discovered_at",
+    ),
+    "observed_addons": (
+        "name",
+        "addon_key",
+    ),
 }
 
 _ROOT_BOOL_FIELDS = {
@@ -103,6 +117,8 @@ _ROOT_BOOL_FIELDS = {
     "default_group_icons_initialized",
     "starter_recents_pending",
     "include_builtin_tabs",
+    "new_addons_initialized",
+    "observed_addons_initialized",
 }
 _ROOT_INT_FIELDS = {
     "target_index",
@@ -138,6 +154,8 @@ _RECORD_STRING_FIELDS = {
     "first_opened_at",
     "last_opened_at",
     "target_key",
+    "addon_key",
+    "discovered_at",
 }
 _BUILTIN_ICON_IDS = {item[0] for item in BUILTIN_ICON_ITEMS}
 _DISPLAY_MODE_IDS = {item[0] for item in DISPLAY_MODE_ITEMS}
@@ -150,6 +168,8 @@ _ROOT_DEFAULTS = {
     "default_group_icons_initialized": False,
     "icon_enum_schema_version": 0,
     "favorite_index": 0,
+    "new_addons_initialized": False,
+    "observed_addons_initialized": False,
     "favorites_schema_version": 0,
     "favorite_1": "",
     "favorite_2": "",
@@ -630,6 +650,8 @@ def _validate_payload(payload) -> dict:
         "groups": "group_id",
         "targets": "native_key",
         "favorites": "target_key",
+        "new_addons": "addon_key",
+        "observed_addons": "addon_key",
     }
     for collection_name, fields in COLLECTION_FIELDS.items():
         records = payload.get(collection_name)
@@ -639,6 +661,8 @@ def _validate_payload(payload) -> dict:
             "groups": MAX_GROUP_RECORDS,
             "targets": MAX_TARGET_RECORDS,
             "favorites": MAX_FAVORITES,
+            "new_addons": MAX_NEW_ADDON_RECORDS,
+            "observed_addons": MAX_OBSERVED_ADDON_RECORDS,
         }
         if len(records) > limits[collection_name]:
             raise ValueError(f"too many {collection_name} records")
@@ -943,6 +967,30 @@ def _migrate_v5_to_v6(payload: dict) -> dict:
     return migrated
 
 
+def _migrate_v6_to_v7(payload: dict) -> dict:
+    """Add the persistent queue for newly detected add-ons."""
+    migrated = dict(payload)
+    source_root = payload.get("root")
+    root = dict(source_root) if isinstance(source_root, dict) else {}
+    root.setdefault("new_addons_initialized", bool(payload.get("targets")))
+    migrated["root"] = root
+    migrated["new_addons"] = list(payload.get("new_addons", ()))
+    migrated["version"] = 7
+    return migrated
+
+
+def _migrate_v7_to_v8(payload: dict) -> dict:
+    """Track enabled add-ons independently from retained catalog targets."""
+    migrated = dict(payload)
+    source_root = payload.get("root")
+    root = dict(source_root) if isinstance(source_root, dict) else {}
+    root.setdefault("observed_addons_initialized", False)
+    migrated["root"] = root
+    migrated["observed_addons"] = list(payload.get("observed_addons", ()))
+    migrated["version"] = 8
+    return migrated
+
+
 def _legacy_group_memberships(record):
     group_id = record.get("group_id", "")
     if not group_id:
@@ -960,6 +1008,8 @@ _FORMAT_MIGRATIONS = {
     3: _migrate_v3_to_v4,
     4: _migrate_v4_to_v5,
     5: _migrate_v5_to_v6,
+    6: _migrate_v6_to_v7,
+    7: _migrate_v7_to_v8,
 }
 
 

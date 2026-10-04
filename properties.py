@@ -40,6 +40,34 @@ class QNP_PG_Favorite(bpy.types.PropertyGroup):
     target_key: StringProperty(name="Target Key", update=_persistent_value_updated)
 
 
+class QNP_PG_NewAddon(bpy.types.PropertyGroup):
+    __slots__ = ()
+
+    name: StringProperty(
+        name="Internal Name",
+        options={"HIDDEN"},
+        update=_persistent_value_updated,
+    )
+    addon_key: StringProperty(name="Add-on Key", update=_persistent_value_updated)
+    target_key: StringProperty(name="Target Key", update=_persistent_value_updated)
+    discovered_at: StringProperty(
+        name="Discovered At",
+        options={"HIDDEN"},
+        update=_persistent_value_updated,
+    )
+
+
+class QNP_PG_ObservedAddon(bpy.types.PropertyGroup):
+    __slots__ = ()
+
+    name: StringProperty(
+        name="Internal Name",
+        options={"HIDDEN"},
+        update=_persistent_value_updated,
+    )
+    addon_key: StringProperty(name="Add-on Key", update=_persistent_value_updated)
+
+
 class QNP_PG_TargetSettings(bpy.types.PropertyGroup):
     __slots__ = ()
 
@@ -157,6 +185,8 @@ class QNP_PG_Group(bpy.types.PropertyGroup):
 
 CLASSES = (
     QNP_PG_Favorite,
+    QNP_PG_NewAddon,
+    QNP_PG_ObservedAddon,
     QNP_PG_TargetSettings,
     QNP_PG_Group,
 )

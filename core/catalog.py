@@ -107,6 +107,17 @@ def module_owner_key(module: str) -> str:
     return parts[0] if parts else ""
 
 
+def addon_key_for_module(module: str, addon_keys: Iterable[str]) -> str:
+    """Match a registered panel module to an enabled add-on package."""
+    module = str(module or "")
+    matches = tuple(
+        addon_key
+        for addon_key in addon_keys
+        if addon_key and (module == addon_key or module.startswith(f"{addon_key}."))
+    )
+    return max(matches, key=lambda addon_key: (len(addon_key), addon_key), default="")
+
+
 def module_display_name(module: str) -> str:
     """Return a readable source hint without claiming an add-on identity."""
 

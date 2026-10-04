@@ -10,6 +10,7 @@ from ..constants import ADDON_PACKAGE, DIRECT_CATEGORIES
 from .catalog import (
     PanelDescriptor,
     TargetDescriptor,
+    addon_key_for_module,
     make_target_key,
 )
 from .reconciliation import reconcile_catalog_targets
@@ -32,6 +33,10 @@ class CatalogSnapshot:
 
 _snapshot = CatalogSnapshot()
 _last_include_builtin = None
+_last_enabled_addon_signature = None
+_addon_incarnations = {}
+_panel_incarnations = {}
+_addon_state_seen = False
 
 _NATIVE_DIRECT_PANEL_IDS = {
     "View": "VIEW3D_PT_view3d_properties",
@@ -60,11 +65,18 @@ _PANEL_CONTEXTS_BY_MODE = {
 
 
 def refresh_catalog(context=None, *, force=False, sync_preferences=True) -> CatalogSnapshot:
-    global _snapshot, _last_include_builtin
+    global _snapshot, _last_include_builtin, _last_enabled_addon_signature
 
     context = context or bpy.context
     preferences = _preferences_or_none(context)
     include_builtin = bool(preferences and preferences.include_builtin_tabs)
+    enabled_addon_keys, addon_incarnations = _enabled_addon_state(context)
+    panel_incarnations = _panel_incarnation_state(enabled_addon_keys)
+    enabled_addon_signature = _enabled_addon_signature(
+        enabled_addon_keys,
+        addon_incarnations,
+        panel_incarnations,
+    )
 
     cache_is_fresh = time.time() - _snapshot.scanned_at < 1.0
     if (
@@ -72,22 +84,39 @@ def refresh_catalog(context=None, *, force=False, sync_preferences=True) -> Cata
         and _snapshot.scanned_at
         and cache_is_fresh
         and include_builtin == _last_include_builtin
+        and enabled_addon_signature == _last_enabled_addon_signature
     ):
         return _snapshot
 
+    transitioned_addon_keys = _transitioned_addon_keys(
+        enabled_addon_keys,
+        addon_incarnations,
+        panel_incarnations,
+    )
     targets = scan_sidebar_targets(include_builtin=include_builtin)
     scanned_at = time.time()
     _snapshot = CatalogSnapshot(targets=targets, scanned_at=scanned_at)
     _last_include_builtin = include_builtin
 
     if sync_preferences and preferences is not None:
-        warnings = sync_catalog_to_preferences(_snapshot, preferences)
+        warnings = sync_catalog_to_preferences(
+            _snapshot,
+            preferences,
+            enabled_addon_keys=enabled_addon_keys,
+            transitioned_addon_keys=transitioned_addon_keys,
+        )
         _snapshot = CatalogSnapshot(
             targets=targets,
             scanned_at=scanned_at,
             warnings=warnings,
         )
 
+    _remember_addon_state(
+        enabled_addon_keys,
+        addon_incarnations,
+        panel_incarnations,
+    )
+    _last_enabled_addon_signature = enabled_addon_signature
     return _snapshot
 
 
@@ -142,13 +171,147 @@ def scan_sidebar_targets(*, include_builtin=False) -> tuple[TargetDescriptor, ..
     return tuple(targets)
 
 
-def sync_catalog_to_preferences(snapshot: CatalogSnapshot, preferences):
+def sync_catalog_to_preferences(
+    snapshot: CatalogSnapshot,
+    preferences,
+    *,
+    enabled_addon_keys=None,
+    transitioned_addon_keys=(),
+):
+    from ..preferences import reconcile_new_addons
+
+    discovery_changed = reconcile_new_addons(
+        preferences,
+        snapshot.targets,
+        enabled_addon_keys=enabled_addon_keys,
+        transitioned_addon_keys=transitioned_addon_keys,
+    )
     result = reconcile_catalog_targets(snapshot.targets, preferences)
-    if result.changed:
+    if discovery_changed or result.changed:
         from .. import persistence
 
         persistence.request_save()
     return result.warnings
+
+
+def _enabled_addon_state(context):
+    user_preferences = getattr(context, "preferences", None)
+    addons = getattr(user_preferences, "addons", None)
+    if addons is None:
+        return None, {}
+
+    enabled_addon_keys = set()
+    addon_incarnations = {}
+    try:
+        addon_items = tuple(addons)
+    except (TypeError, RuntimeError, ValueError):
+        return None, {}
+
+    for addon in addon_items:
+        addon_key = str(getattr(addon, "module", "") or "")
+        if not addon_key or addon_key == ADDON_PACKAGE:
+            continue
+        enabled_addon_keys.add(addon_key)
+        addon_incarnations[addon_key] = _addon_incarnation(addon)
+    return frozenset(enabled_addon_keys), addon_incarnations
+
+
+def _addon_incarnation(addon):
+    as_pointer = getattr(addon, "as_pointer", None)
+    if callable(as_pointer):
+        try:
+            pointer = int(as_pointer())
+        except (TypeError, RuntimeError, ValueError):
+            pointer = 0
+        if pointer:
+            return ("rna", pointer)
+    return ("python", id(addon))
+
+
+def _panel_incarnation_state(enabled_addon_keys):
+    if enabled_addon_keys is None:
+        return None
+
+    panels_by_addon = {}
+    for panel_type in _registered_panel_types():
+        if getattr(panel_type, "bl_space_type", "") != "VIEW_3D":
+            continue
+        if getattr(panel_type, "bl_region_type", "") != "UI":
+            continue
+        if not str(getattr(panel_type, "bl_category", "") or "").strip():
+            continue
+
+        module = str(getattr(panel_type, "__module__", "") or "")
+        addon_key = addon_key_for_module(module, enabled_addon_keys)
+        if not addon_key:
+            continue
+        identifier = str(
+            getattr(panel_type, "bl_idname", "") or panel_type.__name__
+        )
+        panels_by_addon.setdefault(addon_key, []).append((identifier, panel_type))
+
+    return {
+        addon_key: tuple(
+            sorted(
+                panels,
+                key=lambda panel: (panel[0], id(panel[1])),
+            )
+        )
+        for addon_key, panels in panels_by_addon.items()
+    }
+
+
+def _enabled_addon_signature(
+    enabled_addon_keys,
+    addon_incarnations,
+    panel_incarnations,
+):
+    if enabled_addon_keys is None:
+        return None
+    return tuple(
+        sorted(
+            (
+                addon_key,
+                addon_incarnations.get(addon_key),
+                (panel_incarnations or {}).get(addon_key, ()),
+            )
+            for addon_key in enabled_addon_keys
+        )
+    )
+
+
+def _transitioned_addon_keys(
+    enabled_addon_keys,
+    addon_incarnations,
+    panel_incarnations=None,
+):
+    if enabled_addon_keys is None or not _addon_state_seen:
+        return set()
+
+    previous_keys = set(_addon_incarnations)
+    transitioned = set(enabled_addon_keys) - previous_keys
+    for addon_key in set(enabled_addon_keys) & previous_keys:
+        if (
+            addon_incarnations.get(addon_key)
+            != _addon_incarnations.get(addon_key)
+            or (panel_incarnations or {}).get(addon_key, ())
+            != _panel_incarnations.get(addon_key, ())
+        ):
+            transitioned.add(addon_key)
+    return transitioned
+
+
+def _remember_addon_state(
+    enabled_addon_keys,
+    addon_incarnations,
+    panel_incarnations=None,
+):
+    global _addon_incarnations, _panel_incarnations, _addon_state_seen
+    if enabled_addon_keys is None:
+        return
+    _addon_incarnations = dict(addon_incarnations)
+    _panel_incarnations = dict(panel_incarnations or {})
+    _addon_state_seen = True
 
 
 def get_snapshot() -> CatalogSnapshot:
@@ -200,9 +363,14 @@ def available_direct_categories(context) -> tuple[str, ...]:
 
 
 def invalidate_catalog():
-    global _snapshot, _last_include_builtin
+    global _snapshot, _last_include_builtin, _last_enabled_addon_signature
+    global _addon_incarnations, _panel_incarnations, _addon_state_seen
     _snapshot = CatalogSnapshot()
     _last_include_builtin = None
+    _last_enabled_addon_signature = None
+    _addon_incarnations = {}
+    _panel_incarnations = {}
+    _addon_state_seen = False
 
 
 @persistent

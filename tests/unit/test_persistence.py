@@ -65,6 +65,19 @@ def favorite_defaults():
     return {"name": "", "target_key": ""}
 
 
+def new_addon_defaults():
+    return {
+        "name": "",
+        "addon_key": "",
+        "target_key": "",
+        "discovered_at": "",
+    }
+
+
+def observed_addon_defaults():
+    return {"name": "", "addon_key": ""}
+
+
 class FakePreferences:
     def __init__(self):
         self.target_index = 0
@@ -73,6 +86,8 @@ class FakePreferences:
         self.default_group_icons_initialized = False
         self.icon_enum_schema_version = 0
         self.favorite_index = 0
+        self.new_addons_initialized = False
+        self.observed_addons_initialized = False
         self.favorites_schema_version = 0
         self.favorite_1 = ""
         self.favorite_2 = ""
@@ -90,6 +105,8 @@ class FakePreferences:
         self.groups = FakeCollection(group_defaults)
         self.targets = FakeCollection(target_defaults)
         self.favorites = FakeCollection(favorite_defaults)
+        self.new_addons = FakeCollection(new_addon_defaults)
+        self.observed_addons = FakeCollection(observed_addon_defaults)
         self._stored_keys = set()
 
     def keys(self):
@@ -101,6 +118,8 @@ def configured_preferences():
     preferences.default_groups_initialized = True
     preferences.default_group_icons_initialized = True
     preferences.icon_enum_schema_version = 2
+    preferences.new_addons_initialized = True
+    preferences.observed_addons_initialized = True
     preferences.favorites_schema_version = 1
     preferences.activity_schema_version = 1
     preferences.compact_popup_width = 611
@@ -137,6 +156,14 @@ def configured_preferences():
     favorite = preferences.favorites.add()
     favorite.name = target.native_key
     favorite.target_key = target.native_key
+    new_addon = preferences.new_addons.add()
+    new_addon.name = "example"
+    new_addon.addon_key = "example"
+    new_addon.target_key = target.native_key
+    new_addon.discovered_at = "15.000000"
+    observed_addon = preferences.observed_addons.add()
+    observed_addon.name = "example"
+    observed_addon.addon_key = "example"
     preferences.last_target_key = target.native_key
     preferences.last_observed_target_key = target.native_key
     return preferences
@@ -288,6 +315,30 @@ class PersistenceTests(unittest.TestCase):
 
         self.assertEqual(migrated["version"], persistence.FORMAT_VERSION)
         self.assertEqual(migrated["targets"][0]["group_memberships"], '{"custom":0}')
+
+    def test_v6_snapshot_adds_new_addon_defaults(self):
+        payload = persistence.snapshot_preferences(configured_preferences())
+        payload["version"] = 6
+        payload["root"].pop("new_addons_initialized")
+        payload.pop("new_addons")
+
+        migrated = persistence._validate_payload(payload)
+
+        self.assertEqual(migrated["version"], persistence.FORMAT_VERSION)
+        self.assertTrue(migrated["root"]["new_addons_initialized"])
+        self.assertEqual(migrated["new_addons"], [])
+
+    def test_v7_snapshot_starts_enabled_addon_baseline(self):
+        payload = persistence.snapshot_preferences(configured_preferences())
+        payload["version"] = 7
+        payload["root"].pop("observed_addons_initialized")
+        payload.pop("observed_addons")
+
+        migrated = persistence._validate_payload(payload)
+
+        self.assertEqual(migrated["version"], persistence.FORMAT_VERSION)
+        self.assertFalse(migrated["root"]["observed_addons_initialized"])
+        self.assertEqual(migrated["observed_addons"], [])
 
     def test_invalid_uniform_icon_color_is_rejected(self):
         payload = persistence.snapshot_preferences(configured_preferences())

@@ -8,6 +8,7 @@ ensure_source_package()
 from quick_n_panel.core.catalog import (  # noqa: E402
     PanelDescriptor,
     TargetDescriptor,
+    addon_key_for_module,
     make_target_key,
     module_owner_key,
     module_display_name,
@@ -84,6 +85,26 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(
             module_owner_key("bl_ext.user_default.sample.ui.panels"),
             "bl_ext.user_default.sample",
+        )
+
+    def test_addon_key_matching_uses_exact_package_boundaries(self):
+        enabled = {
+            "bl_ext.user_default.sample",
+            "bl_ext.user_default.sample_extra",
+        }
+
+        self.assertEqual(
+            addon_key_for_module("bl_ext.user_default.sample.ui.panels", enabled),
+            "bl_ext.user_default.sample",
+        )
+        self.assertEqual(addon_key_for_module("sample_extra", enabled), "")
+
+    def test_addon_key_matching_prefers_the_longest_enabled_prefix(self):
+        enabled = {"vendor", "vendor.tools"}
+
+        self.assertEqual(
+            addon_key_for_module("vendor.tools.panels", enabled),
+            "vendor.tools",
         )
 
 

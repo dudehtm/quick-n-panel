@@ -1,9 +1,15 @@
 """Theme-native compact and expanded launcher layouts."""
 
-from ..constants import MAX_FAVORITES
+from ..constants import MAX_FAVORITES, MAX_NEW_ADDONS
 from ..core import icons, scanner
+from ..core.catalog import module_display_name
 from ..core.memberships import group_order_for, target_in_group
-from ..preferences import display_name_for, favorite_keys, get_preferences
+from ..preferences import (
+    display_name_for,
+    favorite_keys,
+    get_preferences,
+    new_addon_entries,
+)
 
 
 _EMPTY_CATEGORIES_EXPANDED_PROPERTY = "qnp_empty_categories_expanded"
@@ -205,10 +211,41 @@ def _draw_search(parent, context, preferences):
         empty = column.row()
         empty.enabled = False
         empty.label(text="No recent tab")
+    else:
+        for recent in recent_targets[:3]:
+            _draw_target_button(column, context, preferences, recent.native_key)
+
+    _draw_new_addons(column, context, preferences)
+
+
+def _draw_new_addons(parent, context, preferences):
+    available_keys = scanner.get_snapshot().by_key
+    entries = []
+    for entry in new_addon_entries(preferences):
+        target = preferences.targets.get(entry.target_key)
+        if (
+            target is None
+            or target.hidden
+            or entry.target_key not in available_keys
+        ):
+            continue
+        entries.append(entry)
+    entries = entries[:MAX_NEW_ADDONS]
+    if not entries:
         return
 
-    for recent in recent_targets[:3]:
-        _draw_target_button(column, context, preferences, recent.native_key)
+    parent.separator(factor=1.0)
+    parent.label(text="New", icon="RECOVER_LAST")
+    for entry in entries:
+        _draw_target_button(
+            parent,
+            context,
+            preferences,
+            entry.target_key,
+            compact=True,
+            label_prefix=module_display_name(entry.addon_key),
+            dismiss_addon_key=entry.addon_key,
+        )
 
 
 def _draw_favorites(parent, context, preferences):
@@ -330,6 +367,8 @@ def _draw_target_button(
     compact=False,
     show_category_icon=False,
     show_favorite=False,
+    label_prefix="",
+    dismiss_addon_key="",
 ):
     target = preferences.targets.get(target_key)
     if target is None:
@@ -344,6 +383,8 @@ def _draw_target_button(
     row.scale_y = 1.0 if compact else 1.35
 
     text = display_name_for(target)
+    if label_prefix:
+        text = f"{label_prefix}: {text}"
     icon_name, icon_value = icons.resolve_icon(
         target.icon_name,
         target.icon_path,
@@ -379,6 +420,13 @@ def _draw_target_button(
             depress=is_favorite,
         )
         favorite.target_key = target_key
+    if dismiss_addon_key:
+        dismiss = row.operator(
+            "quick_n_panel.dismiss_new_addon",
+            text="",
+            icon="X",
+        )
+        dismiss.addon_key = dismiss_addon_key
 
 
 def _resolve_group_icon(group):
