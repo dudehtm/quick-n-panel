@@ -292,7 +292,7 @@ class ImportGraphTests(unittest.TestCase):
             ["B", "C"],
         )
 
-    def test_popup_category_add_excludes_members_and_appends_moved_tab(self):
+    def test_popup_category_add_keeps_memberships_in_other_categories(self):
         choices_module = importlib.import_module("quick_n_panel.operators.choices")
         groups_module = importlib.import_module("quick_n_panel.operators.groups")
 
@@ -369,8 +369,25 @@ class ImportGraphTests(unittest.TestCase):
         self.assertEqual([item[0] for item in all_items], ["A", "B", "C"])
         self.assertEqual([item[0] for item in items], ["B", "C"])
         self.assertEqual(result, {"FINISHED"})
-        self.assertEqual(targets.get("B").group_id, "destination")
-        self.assertEqual(targets.get("B").group_order, 3)
+        self.assertEqual(targets.get("B").group_id, "other")
+        self.assertEqual(targets.get("B").group_order, 4)
+        self.assertEqual(
+            [
+                target.native_key
+                for target in groups_module.ordered_group_targets(
+                    preferences,
+                    "destination",
+                )
+            ],
+            ["A", "B"],
+        )
+        self.assertEqual(
+            [
+                target.native_key
+                for target in groups_module.ordered_group_targets(preferences, "other")
+            ],
+            ["B"],
+        )
 
     def test_popup_category_draws_all_targets_without_overflow_controls(self):
         popup_module = importlib.import_module("quick_n_panel.ui.popup")
@@ -446,7 +463,10 @@ class ImportGraphTests(unittest.TestCase):
             popup_module._draw_target_button = original_target
 
         self.assertEqual([key for key, _kwargs in drawn], list("ABCDEFGHIJKL"))
-        self.assertEqual([kwargs for _key, kwargs in drawn], [{"compact": True}] * 12)
+        self.assertEqual(
+            [kwargs for _key, kwargs in drawn],
+            [{"compact": True, "show_favorite": True}] * 12,
+        )
         self.assertNotIn("more", " ".join(labels))
 
     def test_populated_categories_use_the_shortest_column(self):
@@ -817,7 +837,7 @@ class ImportGraphTests(unittest.TestCase):
             )
             for index, key in enumerate(("A", "B"))
         )
-        preferences = SimpleNamespace(targets=tuple(targets))
+        preferences = SimpleNamespace(targets=tuple(targets), favorites=())
         group = SimpleNamespace(group_id="group")
         original_exists = groups_ui.scanner.target_exists
         original_resolve = groups_ui.icons.resolve_icon
@@ -832,6 +852,7 @@ class ImportGraphTests(unittest.TestCase):
         identifiers = [identifier for identifier, _properties in operators]
         self.assertEqual(identifiers.count("quick_n_panel.add_target_to_group"), 1)
         self.assertEqual(identifiers.count("quick_n_panel.open_target"), 2)
+        self.assertEqual(identifiers.count("quick_n_panel.toggle_favorite"), 2)
         self.assertEqual(identifiers.count("quick_n_panel.move_target_in_group"), 4)
         self.assertEqual(identifiers.count("quick_n_panel.remove_target_from_group"), 2)
         self.assertIn("Tabs (2)", labels)

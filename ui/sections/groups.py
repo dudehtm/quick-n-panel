@@ -1,7 +1,7 @@
 """Launcher group configuration section."""
 
 from ...core import icons, scanner
-from ...preferences import display_name_for, ordered_group_targets
+from ...preferences import display_name_for, favorite_keys, ordered_group_targets
 
 
 def draw(layout, context, preferences):
@@ -67,6 +67,7 @@ def _draw_group_targets(layout, _context, preferences, group):
         return
 
     column = layout.column(align=True)
+    favorites = favorite_keys(preferences)
     for index, target in enumerate(targets):
         row = column.row(align=True)
         number = row.row(align=True)
@@ -95,7 +96,16 @@ def _draw_group_targets(layout, _context, preferences, group):
 
         actions = row.row(align=True)
         actions.alignment = "RIGHT"
-        actions.ui_units_x = 3.0
+        actions.ui_units_x = 4.0
+
+        is_favorite = target.native_key in favorites
+        favorite = actions.operator(
+            "quick_n_panel.toggle_favorite",
+            text="",
+            icon="SOLO_ON" if is_favorite else "SOLO_OFF",
+            depress=is_favorite,
+        )
+        favorite.target_key = target.native_key
 
         up_row = actions.row(align=True)
         up_row.enabled = index > 0
@@ -105,6 +115,7 @@ def _draw_group_targets(layout, _context, preferences, group):
             icon="TRIA_UP",
         )
         move_up.target_key = target.native_key
+        move_up.group_id = group.group_id
         move_up.direction = -1
 
         down_row = actions.row(align=True)
@@ -115,6 +126,7 @@ def _draw_group_targets(layout, _context, preferences, group):
             icon="TRIA_DOWN",
         )
         move_down.target_key = target.native_key
+        move_down.group_id = group.group_id
         move_down.direction = 1
 
         remove_row = actions.row(align=True)
@@ -125,6 +137,7 @@ def _draw_group_targets(layout, _context, preferences, group):
             icon="X",
         )
         remove.target_key = target.native_key
+        remove.group_id = group.group_id
 
 
 def _active_group(preferences):

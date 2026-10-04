@@ -2,6 +2,7 @@
 
 from ..constants import MAX_FAVORITES
 from ..core import icons, scanner
+from ..core.memberships import group_order_for, target_in_group
 from ..preferences import display_name_for, favorite_keys, get_preferences
 
 
@@ -161,10 +162,13 @@ def _library_contents(preferences, available_keys):
     grouped = []
     for group in preferences.groups:
         targets = [
-            target for target in available_targets if target.group_id == group.group_id
+            target for target in available_targets if target_in_group(target, group.group_id)
         ]
         targets.sort(
-            key=lambda target: (target.group_order, display_name_for(target).casefold())
+            key=lambda target: (
+                group_order_for(target, group.group_id),
+                display_name_for(target).casefold(),
+            )
         )
         grouped.append((group, targets))
     return available_targets, grouped
@@ -291,6 +295,7 @@ def _draw_group(parent, context, preferences, group, targets, *, can_add):
             preferences,
             target.native_key,
             compact=True,
+            show_favorite=True,
         )
 
 
@@ -324,6 +329,7 @@ def _draw_target_button(
     *,
     compact=False,
     show_category_icon=False,
+    show_favorite=False,
 ):
     target = preferences.targets.get(target_key)
     if target is None:
@@ -336,7 +342,6 @@ def _draw_target_button(
     available = exists and scanner.target_is_context_available(target_key, context)
     row = parent.row(align=True)
     row.scale_y = 1.0 if compact else 1.35
-    row.enabled = available
 
     text = display_name_for(target)
     icon_name, icon_value = icons.resolve_icon(
@@ -355,7 +360,9 @@ def _draw_target_button(
     elif icon_name != "NONE":
         kwargs["icon"] = icon_name
 
-    operator = row.operator("quick_n_panel.open_target", **kwargs)
+    open_row = row.row(align=True)
+    open_row.enabled = available
+    operator = open_row.operator("quick_n_panel.open_target", **kwargs)
     operator.target_key = target_key
     if show_category_icon:
         icon_name, icon_value = _category_icon_for_target(preferences, target)
@@ -363,6 +370,15 @@ def _draw_target_button(
             row.label(text="", icon_value=icon_value)
         else:
             row.label(text="", icon=icon_name)
+    if show_favorite:
+        is_favorite = target_key in favorite_keys(preferences)
+        favorite = row.operator(
+            "quick_n_panel.toggle_favorite",
+            text="",
+            icon="SOLO_ON" if is_favorite else "SOLO_OFF",
+            depress=is_favorite,
+        )
+        favorite.target_key = target_key
 
 
 def _resolve_group_icon(group):

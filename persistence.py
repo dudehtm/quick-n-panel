@@ -21,7 +21,7 @@ from .constants import (
 
 
 FORMAT_NAME = "quick_n_panel.preferences"
-FORMAT_VERSION = 5
+FORMAT_VERSION = 6
 SIDECAR_FILENAME = "preferences.json"
 LEGACY_SIDECAR_FILENAMES = ("preferences-v1.json",)
 MAX_SIDECAR_BYTES = 8 * 1024 * 1024
@@ -86,6 +86,7 @@ COLLECTION_FIELDS = {
         "last_opened_at",
         "group_id",
         "group_order",
+        "group_memberships",
         "hidden",
         "icon_name",
         "bundled_icon",
@@ -123,6 +124,7 @@ _ROOT_STRING_FIELDS = {
 _RECORD_STRING_FIELDS = {
     "name",
     "group_id",
+    "group_memberships",
     "display_name",
     "icon_name",
     "bundled_icon",
@@ -702,6 +704,8 @@ def _validate_root_value(field, value):
 
 
 def _validate_record_value(field, value):
+    if field == "group_memberships":
+        return _validate_group_memberships(value)
     if field in _RECORD_STRING_FIELDS:
         if not isinstance(value, str):
             raise ValueError(f"{field} must be a string")
@@ -717,6 +721,28 @@ def _validate_record_value(field, value):
             raise ValueError("hidden must be a boolean")
         return value
     raise ValueError(f"unsupported record field: {field}")
+
+
+def _validate_group_memberships(value):
+    if not isinstance(value, str):
+        raise ValueError("group_memberships must be a string")
+    if not value:
+        return ""
+    try:
+        decoded = json.loads(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError("group_memberships must contain valid JSON") from error
+    if not isinstance(decoded, dict) or len(decoded) > MAX_GROUP_RECORDS:
+        raise ValueError("group_memberships must be an object")
+
+    normalized = {}
+    for group_id, order in decoded.items():
+        if not isinstance(group_id, str) or not group_id:
+            raise ValueError("group_memberships contains an invalid category")
+        if type(order) is not int or not 0 <= order <= 2_147_483_647:
+            raise ValueError("group_memberships contains an invalid order")
+        normalized[group_id] = order
+    return json.dumps(normalized, sort_keys=True, separators=(",", ":"))
 
 
 def _apply_payload(preferences, payload):
@@ -776,11 +802,13 @@ def _run_application_migrations(preferences) -> None:
         ensure_default_groups,
         ensure_display_mode,
         ensure_favorites,
+        ensure_group_memberships,
     )
 
     ensure_display_mode(preferences)
     icons.migrate_bundled_icon_values(preferences)
     ensure_default_groups(preferences)
+    ensure_group_memberships(preferences)
     ensure_favorites(preferences)
     ensure_activity_history(preferences)
 
@@ -898,11 +926,40 @@ def _migrate_v4_to_v5(payload: dict) -> dict:
     return migrated
 
 
+def _migrate_v5_to_v6(payload: dict) -> dict:
+    """Allow one target to belong to multiple categories."""
+    migrated = dict(payload)
+    migrated["targets"] = [
+        {
+            **record,
+            "group_memberships": record.get("group_memberships")
+            or _legacy_group_memberships(record),
+        }
+        if isinstance(record, dict)
+        else record
+        for record in payload.get("targets", ())
+    ]
+    migrated["version"] = 6
+    return migrated
+
+
+def _legacy_group_memberships(record):
+    group_id = record.get("group_id", "")
+    if not group_id:
+        return ""
+    return json.dumps(
+        {group_id: record.get("group_order", 0)},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
 _FORMAT_MIGRATIONS = {
     1: _migrate_v1_to_v2,
     2: _migrate_v2_to_v3,
     3: _migrate_v3_to_v4,
     4: _migrate_v4_to_v5,
+    5: _migrate_v5_to_v6,
 }
 
 

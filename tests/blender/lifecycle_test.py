@@ -57,10 +57,16 @@ def _test_direct_categories(scanner):
 
 
 def _assert_configuration(preferences, target_key):
+    from quick_n_panel.core.memberships import target_in_group
+
+    target = preferences.targets.get(target_key)
     assert preferences.compact_popup_width == 611
     assert preferences.groups.get("lifecycle_group") is not None
-    assert preferences.targets.get(target_key).display_name == "Restored Probe"
-    assert preferences.targets.get(target_key).group_id == "lifecycle_group"
+    assert preferences.groups.get("lifecycle_secondary") is not None
+    assert target.display_name == "Restored Probe"
+    assert target.group_id == "lifecycle_group"
+    assert target_in_group(target, "lifecycle_group")
+    assert target_in_group(target, "lifecycle_secondary")
     assert preferences.favorites.get(target_key) is not None
 
 
@@ -162,6 +168,15 @@ def main():
             custom_group.display_name = "Lifecycle Group"
             result = bpy.ops.quick_n_panel.add_target_to_group(
                 group_id=custom_group.group_id,
+                target_key=target.native_key,
+            )
+            assert result == {"FINISHED"}, result
+            secondary_group = preferences.groups.add()
+            secondary_group.name = "lifecycle_secondary"
+            secondary_group.group_id = "lifecycle_secondary"
+            secondary_group.display_name = "Lifecycle Secondary"
+            result = bpy.ops.quick_n_panel.add_target_to_group(
+                group_id=secondary_group.group_id,
                 target_key=target.native_key,
             )
             assert result == {"FINISHED"}, result

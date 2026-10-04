@@ -14,6 +14,7 @@ from .preferences import (
     ensure_default_groups,
     ensure_display_mode,
     ensure_favorites,
+    ensure_group_memberships,
     get_preferences,
 )
 from .properties import CLASSES as PROPERTY_CLASSES
@@ -69,6 +70,7 @@ def register_addon():
             icons.refresh_icon_previews()
             icons.migrate_bundled_icon_values(preferences)
             ensure_default_groups(preferences)
+            ensure_group_memberships(preferences)
             ensure_favorites(preferences)
         scanner.refresh_catalog(bpy.context, force=True)
         if preferences is not None:

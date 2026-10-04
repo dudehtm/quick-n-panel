@@ -22,6 +22,13 @@ from .constants import (
     ICON_COLOR_MODE_ITEMS,
     MAX_FAVORITES,
 )
+from .core.memberships import (
+    group_memberships_for,
+    group_order_for,
+    set_group_membership_order,
+    set_group_memberships,
+    target_in_group,
+)
 from .properties import QNP_PG_Favorite, QNP_PG_Group, QNP_PG_TargetSettings
 
 
@@ -199,6 +206,25 @@ def ensure_default_groups(preferences):
         preferences.default_group_icons_initialized = True
 
 
+def ensure_group_memberships(preferences) -> bool:
+    """Migrate legacy single-category targets to the multi-category model."""
+    changed = False
+    for target in preferences.targets:
+        before = (
+            getattr(target, "group_memberships", ""),
+            getattr(target, "group_id", ""),
+            getattr(target, "group_order", 0),
+        )
+        set_group_memberships(target, group_memberships_for(target))
+        after = (
+            getattr(target, "group_memberships", ""),
+            getattr(target, "group_id", ""),
+            getattr(target, "group_order", 0),
+        )
+        changed |= before != after
+    return changed
+
+
 def ensure_favorites(preferences):
     if preferences.favorites_schema_version >= 1:
         return
@@ -332,10 +358,55 @@ def favorite_keys(preferences) -> tuple[str, ...]:
     return tuple(item.target_key for item in preferences.favorites if item.target_key)
 
 
+def add_target_to_group(preferences, target, group_id: str) -> bool:
+    group_id = str(group_id or "")
+    if not group_id:
+        return False
+
+    memberships = group_memberships_for(target)
+    if group_id in memberships:
+        return False
+
+    orders = [
+        group_order_for(item, group_id)
+        for item in preferences.targets
+        if target_in_group(item, group_id) and item.native_key != target.native_key
+    ]
+    memberships[group_id] = max(orders, default=-1) + 1
+    set_group_memberships(target, memberships)
+    return True
+
+
+def remove_target_from_group(preferences, target, group_id: str) -> bool:
+    group_id = str(group_id or "")
+    memberships = group_memberships_for(target)
+    if group_id not in memberships:
+        return False
+
+    del memberships[group_id]
+    set_group_memberships(target, memberships)
+    for index, item in enumerate(ordered_group_targets(preferences, group_id)):
+        set_group_membership_order(item, group_id, index)
+    return True
+
+
+def clear_target_groups(target) -> bool:
+    memberships = group_memberships_for(target)
+    if not memberships:
+        return False
+    set_group_memberships(target, {})
+    return True
+
+
 def ordered_group_targets(preferences, group_id: str):
-    targets = [target for target in preferences.targets if target.group_id == group_id]
+    targets = [
+        target for target in preferences.targets if target_in_group(target, group_id)
+    ]
     targets.sort(
-        key=lambda target: (target.group_order, display_name_for(target).casefold())
+        key=lambda target: (
+            group_order_for(target, group_id),
+            display_name_for(target).casefold(),
+        )
     )
     return targets
 

@@ -1,6 +1,7 @@
 """Dynamic enum choices shared by organization operators."""
 
 from ..core import icons, scanner
+from ..core.memberships import target_in_group
 from ..preferences import display_name_for, get_preferences
 
 
@@ -37,7 +38,10 @@ def _target_items(context, *, excluded_group_id=None):
         for target in preferences.targets
         if (
             target.native_key in snapshot.by_key
-            and (excluded_group_id is None or target.group_id != excluded_group_id)
+            and (
+                excluded_group_id is None
+                or not target_in_group(target, excluded_group_id)
+            )
         )
     ]
     targets.sort(key=lambda target: display_name_for(target).casefold())

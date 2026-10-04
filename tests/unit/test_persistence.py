@@ -53,6 +53,7 @@ def target_defaults():
         "last_opened_at": "",
         "group_id": "",
         "group_order": 0,
+        "group_memberships": "",
         "hidden": False,
         "icon_name": "PLUGIN",
         "bundled_icon": "NONE",
@@ -277,6 +278,16 @@ class PersistenceTests(unittest.TestCase):
 
         self.assertEqual(migrated["version"], persistence.FORMAT_VERSION)
         self.assertNotIn("icon_intensity", migrated["root"])
+
+    def test_v5_snapshot_migrates_legacy_category_membership(self):
+        payload = persistence.snapshot_preferences(configured_preferences())
+        payload["version"] = 5
+        payload["targets"][0].pop("group_memberships")
+
+        migrated = persistence._validate_payload(payload)
+
+        self.assertEqual(migrated["version"], persistence.FORMAT_VERSION)
+        self.assertEqual(migrated["targets"][0]["group_memberships"], '{"custom":0}')
 
     def test_invalid_uniform_icon_color_is_rejected(self):
         payload = persistence.snapshot_preferences(configured_preferences())

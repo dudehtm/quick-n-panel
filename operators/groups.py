@@ -7,7 +7,19 @@ from bpy.props import EnumProperty, IntProperty, StringProperty
 
 from .. import persistence
 from ..core import icons
-from ..preferences import get_preferences, ordered_group_targets
+from ..core.memberships import (
+    group_order_for,
+    set_group_membership_order,
+    target_group_ids,
+    target_in_group,
+)
+from ..preferences import (
+    add_target_to_group,
+    clear_target_groups,
+    get_preferences,
+    ordered_group_targets,
+    remove_target_from_group,
+)
 from .choices import category_target_choices, group_choices
 
 
@@ -52,9 +64,8 @@ class QNP_OT_RemoveGroup(bpy.types.Operator):
         group_id = preferences.groups[index].group_id
 
         for target in preferences.targets:
-            if target.group_id == group_id:
-                target.group_id = ""
-                target.group_order = 0
+            if target_in_group(target, group_id):
+                remove_target_from_group(preferences, target, group_id)
 
         icons.remove_managed_icon(preferences.groups[index].icon_path)
         preferences.groups.remove(index)
@@ -104,13 +115,15 @@ class QNP_OT_AssignTargetGroup(bpy.types.Operator):
             if preferences and properties.target_key
             else None
         )
-        group = (
-            preferences.groups.get(target.group_id)
-            if target is not None and target.group_id
-            else None
-        )
-        if group is not None:
-            return f"Category: {group.display_name}. Click to change it"
+        if target is None:
+            return "Unassigned. Click to choose a category"
+        group_names = []
+        for group_id in target_group_ids(target):
+            group = preferences.groups.get(group_id)
+            if group is not None:
+                group_names.append(group.display_name)
+        if group_names:
+            return f"Categories: {', '.join(group_names)}. Click to add another"
         return "Unassigned. Click to choose a category"
 
     def invoke(self, context, _event):
@@ -123,8 +136,10 @@ class QNP_OT_AssignTargetGroup(bpy.types.Operator):
         if target is None:
             return {"CANCELLED"}
 
-        group_id = "" if self.group_id == "__NONE__" else self.group_id
-        _assign_target_to_group(preferences, target, group_id)
+        if self.group_id == "__NONE__":
+            clear_target_groups(target)
+        else:
+            add_target_to_group(preferences, target, self.group_id)
         persistence.request_save()
         return {"FINISHED"}
 
@@ -155,10 +170,10 @@ class QNP_OT_AddTargetToGroup(bpy.types.Operator):
         preferences = get_preferences(context)
         group = preferences.groups.get(self.group_id) if preferences else None
         target = preferences.targets.get(self.target_key) if preferences else None
-        if group is None or target is None or target.group_id == group.group_id:
+        if group is None or target is None or target_in_group(target, group.group_id):
             return {"CANCELLED"}
 
-        _assign_target_to_group(preferences, target, group.group_id)
+        add_target_to_group(preferences, target, group.group_id)
         persistence.request_save()
         return {"FINISHED"}
 
@@ -169,15 +184,23 @@ class QNP_OT_MoveTargetInGroup(bpy.types.Operator):
     bl_options = {"INTERNAL"}
 
     target_key: StringProperty(options={"HIDDEN"})
+    group_id: StringProperty(options={"HIDDEN"})
     direction: IntProperty(default=1, min=-1, max=1, options={"HIDDEN"})
 
     def execute(self, context):
         preferences = get_preferences(context)
         target = preferences.targets.get(self.target_key) if preferences else None
-        if target is None or not target.group_id or self.direction not in {-1, 1}:
+        group_id = (
+            getattr(self, "group_id", "") or getattr(target, "group_id", "")
+            if target
+            else ""
+        )
+        if target is None or not group_id or not target_in_group(target, group_id):
+            return {"CANCELLED"}
+        if self.direction not in {-1, 1}:
             return {"CANCELLED"}
 
-        grouped = ordered_group_targets(preferences, target.group_id)
+        grouped = ordered_group_targets(preferences, group_id)
         source = next(
             index for index, item in enumerate(grouped) if item.native_key == target.native_key
         )
@@ -186,10 +209,13 @@ class QNP_OT_MoveTargetInGroup(bpy.types.Operator):
             return {"CANCELLED"}
 
         grouped.insert(destination, grouped.pop(source))
-        changed = any(item.group_order != index for index, item in enumerate(grouped))
+        changed = any(
+            group_order_for(item, group_id) != index
+            for index, item in enumerate(grouped)
+        )
         if changed:
             for index, item in enumerate(grouped):
-                item.group_order = index
+                set_group_membership_order(item, group_id, index)
             persistence.request_save()
         return {"FINISHED"}
 
@@ -201,36 +227,23 @@ class QNP_OT_RemoveTargetFromGroup(bpy.types.Operator):
     bl_options = {"INTERNAL"}
 
     target_key: StringProperty(options={"HIDDEN"})
+    group_id: StringProperty(options={"HIDDEN"})
 
     def execute(self, context):
         preferences = get_preferences(context)
         target = preferences.targets.get(self.target_key) if preferences else None
-        if target is None or not target.group_id:
+        group_id = (
+            getattr(self, "group_id", "") or getattr(target, "group_id", "")
+            if target
+            else ""
+        )
+        if target is None or not group_id:
             return {"CANCELLED"}
 
-        _assign_target_to_group(preferences, target, "")
+        if not remove_target_from_group(preferences, target, group_id):
+            return {"CANCELLED"}
         persistence.request_save()
         return {"FINISHED"}
-
-
-def _assign_target_to_group(preferences, target, group_id: str):
-    previous_group_id = target.group_id
-    target.group_id = group_id
-    if not group_id:
-        target.group_order = 0
-    else:
-        orders = [
-            item.group_order
-            for item in preferences.targets
-            if item.group_id == group_id and item.native_key != target.native_key
-        ]
-        target.group_order = max(orders, default=-1) + 1
-
-    if previous_group_id and previous_group_id != group_id:
-        for index, item in enumerate(ordered_group_targets(preferences, previous_group_id)):
-            item.group_order = index
-
-
 CLASSES = (
     QNP_OT_AddGroup,
     QNP_OT_RemoveGroup,

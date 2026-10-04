@@ -90,6 +90,11 @@ class QNP_PG_TargetSettings(bpy.types.PropertyGroup):
         min=0,
         update=_persistent_value_updated,
     )
+    group_memberships: StringProperty(
+        name="Category Memberships",
+        options={"HIDDEN"},
+        update=_persistent_value_updated,
+    )
     hidden: BoolProperty(
         name="Hide from Search",
         description="Keep this tab out of the search library",
