@@ -105,7 +105,7 @@ class QNP_Preferences(bpy.types.AddonPreferences):
     )
     compact_popup_width: IntProperty(
         name="Compact Popup Width",
-        description="Width of the launcher before Categories is expanded",
+        description="Width of the compact launcher",
         default=DEFAULT_COMPACT_POPUP_WIDTH,
         min=360,
         max=700,

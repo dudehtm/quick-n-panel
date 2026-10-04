@@ -30,6 +30,7 @@ paths_exclude_pattern = [
   "/tests/",
   "/AGENT.md",
   "/MULTI_EDITOR_PLAN.md",
+  "/FUTURE_FEATURES.md",
   "/EXPORTACION_Y_DISTRIBUCION.md",
   "/pyproject.toml",
   "/*.zip",

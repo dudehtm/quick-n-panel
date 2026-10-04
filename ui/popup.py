@@ -5,8 +5,7 @@ from ..core import icons, scanner
 from ..preferences import display_name_for, favorite_keys, get_preferences
 
 
-_CATEGORY_TARGET_LIMIT = 5
-_ALL_TABS_COLLAPSE_CATEGORY_COUNT = 5
+_EMPTY_CATEGORIES_EXPANDED_PROPERTY = "qnp_empty_categories_expanded"
 
 
 def draw_launcher_popup(layout, context):
@@ -27,8 +26,13 @@ def draw_launcher_popup(layout, context):
     bottom = layout.row(align=True)
     bottom.scale_y = 1.2
     bottom.popover(
-        panel="QNP_PT_launcher_categories_popover",
+        panel="QNP_PT_launcher_library_popover",
         text="Library",
+        icon="TRIA_DOWN",
+    )
+    bottom.popover(
+        panel="QNP_PT_launcher_categories_popover",
+        text="Categories",
         icon="TRIA_DOWN",
     )
     bottom.operator(
@@ -54,80 +58,16 @@ def _draw_direct_categories(layout, context) -> bool:
     return True
 
 
-def draw_categories_popover(layout, context):
+def draw_library_popover(layout, context):
     preferences = get_preferences(context)
     if preferences is None:
         layout.label(text="Preferences unavailable", icon="ERROR")
         return
 
     scanner.refresh_catalog(context)
-    _draw_categories_grid(layout, context, preferences)
-
-
-def reset_all_tabs_expansion(context, preferences, available_keys):
-    _available_targets, grouped = _library_contents(preferences, available_keys)
-    populated_count = sum(bool(targets) for _group, targets in grouped)
-    context.window_manager.qnp_all_tabs_expanded = (
-        populated_count < _ALL_TABS_COLLAPSE_CATEGORY_COUNT
-    )
-
-
-def _draw_categories_grid(layout, context, preferences):
     available_keys = scanner.get_snapshot().by_key
-    available_targets, grouped = _library_contents(preferences, available_keys)
-
-    populated = [entry for entry in grouped if entry[1]]
-    empty = [entry[0] for entry in grouped if not entry[1]]
-
-    if populated:
-        layout.label(text="Categories", icon="COLLECTION_NEW")
-        grid = layout.grid_flow(
-            row_major=True,
-            columns=2,
-            even_columns=True,
-            even_rows=True,
-            align=True,
-        )
-        for group, targets in populated:
-            _draw_group(
-                grid,
-                context,
-                preferences,
-                group,
-                targets,
-                can_add=len(targets) < len(available_targets),
-            )
-
-    if empty:
-        layout.label(text="Empty Categories", icon="OUTLINER_COLLECTION")
-        empty_grid = layout.grid_flow(
-            row_major=True,
-            columns=3,
-            even_columns=True,
-            align=True,
-        )
-        for group in empty:
-            _draw_empty_group(
-                empty_grid,
-                group,
-                can_add=bool(available_targets),
-            )
-
-    layout.separator(factor=0.5)
-    expanded = context.window_manager.qnp_all_tabs_expanded
-    header = layout.row(align=True)
-    header.scale_y = 1.1
-    # UILayout.panel crashes inside this nested popover in Blender 5.2.
-    header.prop(
-        context.window_manager,
-        "qnp_all_tabs_expanded",
-        text=f"All Tabs ({len(available_targets)})",
-        icon="TRIA_DOWN" if expanded else "TRIA_RIGHT",
-        emboss=False,
-        toggle=True,
-    )
-    if not expanded:
-        return
+    available_targets, _grouped = _library_contents(preferences, available_keys)
+    layout.label(text=f"All Tabs ({len(available_targets)})", icon="BOOKMARKS")
 
     if not available_targets:
         layout.label(text="No tabs available", icon="INFO")
@@ -146,7 +86,70 @@ def _draw_categories_grid(layout, context, preferences):
             preferences,
             target.native_key,
             compact=True,
+            show_category_icon=True,
         )
+
+
+def draw_categories_popover(layout, context):
+    preferences = get_preferences(context)
+    if preferences is None:
+        layout.label(text="Preferences unavailable", icon="ERROR")
+        return
+
+    scanner.refresh_catalog(context)
+    _draw_categories_grid(layout, context, preferences)
+
+
+def reset_popup_state(context):
+    window_manager = getattr(context, "window_manager", None)
+    if window_manager is not None:
+        window_manager.qnp_empty_categories_expanded = False
+
+
+def _draw_categories_grid(layout, context, preferences):
+    available_keys = scanner.get_snapshot().by_key
+    available_targets, grouped = _library_contents(preferences, available_keys)
+
+    populated = [entry for entry in grouped if entry[1]]
+    empty = [entry[0] for entry in grouped if not entry[1]]
+
+    if populated:
+        layout.label(text="Categories", icon="COLLECTION_NEW")
+        _draw_populated_categories(
+            layout,
+            context,
+            preferences,
+            populated,
+            available_count=len(available_targets),
+        )
+
+    if empty:
+        if populated:
+            layout.separator(factor=0.5)
+        header = layout.row(align=True)
+        header.scale_y = 1.1
+        expanded = context.window_manager.qnp_empty_categories_expanded
+        header.prop(
+            context.window_manager,
+            _EMPTY_CATEGORIES_EXPANDED_PROPERTY,
+            text=f"Empty Categories ({len(empty)})",
+            icon="TRIA_DOWN" if expanded else "TRIA_RIGHT",
+            emboss=False,
+            toggle=True,
+        )
+        if expanded:
+            empty_grid = layout.grid_flow(
+                row_major=True,
+                columns=3,
+                even_columns=True,
+                align=True,
+            )
+            for group in empty:
+                _draw_empty_group(
+                    empty_grid,
+                    group,
+                    can_add=bool(available_targets),
+                )
 
 
 def _library_contents(preferences, available_keys):
@@ -164,7 +167,6 @@ def _library_contents(preferences, available_keys):
             key=lambda target: (target.group_order, display_name_for(target).casefold())
         )
         grouped.append((group, targets))
-    grouped.sort(key=lambda entry: (-len(entry[1]), entry[0].display_name.casefold()))
     return available_targets, grouped
 
 
@@ -236,14 +238,42 @@ def _draw_favorites(parent, context, preferences):
             _draw_target_button(column, context, preferences, target_key)
 
 
+def _draw_populated_categories(
+    layout,
+    context,
+    preferences,
+    populated,
+    *,
+    available_count,
+):
+    columns_row = layout.split(factor=0.5, align=True)
+    columns = (
+        columns_row.column(align=True),
+        columns_row.column(align=True),
+    )
+    heights = [0.0, 0.0]
+
+    for group, targets in populated:
+        column_index = min(range(len(columns)), key=heights.__getitem__)
+        _draw_group(
+            columns[column_index],
+            context,
+            preferences,
+            group,
+            targets,
+            can_add=len(targets) < available_count,
+        )
+        heights[column_index] += _estimated_group_height(len(targets))
+
+
+def _estimated_group_height(target_count: int) -> float:
+    return 2.0 + target_count
+
+
 def _draw_group(parent, context, preferences, group, targets, *, can_add):
     box = parent.box()
     column = box.column(align=True)
-    icon_name, icon_value = icons.resolve_icon(
-        group.icon_name,
-        group.icon_path,
-        group.bundled_icon,
-    )
+    icon_name, icon_value = _resolve_group_icon(group)
     header = column.row(align=True)
     header.scale_y = 1.2
     label = f"{group.display_name} ({len(targets)})"
@@ -254,7 +284,7 @@ def _draw_group(parent, context, preferences, group, targets, *, can_add):
     _draw_add_target_to_group(header, group.group_id, enabled=can_add)
     column.separator(factor=0.6)
 
-    for target in targets[:_CATEGORY_TARGET_LIMIT]:
+    for target in targets:
         _draw_target_button(
             column,
             context,
@@ -263,21 +293,10 @@ def _draw_group(parent, context, preferences, group, targets, *, can_add):
             compact=True,
         )
 
-    remaining = len(targets) - _CATEGORY_TARGET_LIMIT
-    if remaining > 0:
-        more = column.row()
-        more.alignment = "CENTER"
-        more.enabled = False
-        more.label(text=f"+{remaining} more")
-
 
 def _draw_empty_group(parent, group, *, can_add):
     row = parent.row(align=True)
-    icon_name, icon_value = icons.resolve_icon(
-        group.icon_name,
-        group.icon_path,
-        group.bundled_icon,
-    )
+    icon_name, icon_value = _resolve_group_icon(group)
     if icon_value:
         row.label(text=group.display_name, icon_value=icon_value)
     else:
@@ -304,6 +323,7 @@ def _draw_target_button(
     target_key: str,
     *,
     compact=False,
+    show_category_icon=False,
 ):
     target = preferences.targets.get(target_key)
     if target is None:
@@ -337,6 +357,30 @@ def _draw_target_button(
 
     operator = row.operator("quick_n_panel.open_target", **kwargs)
     operator.target_key = target_key
+    if show_category_icon:
+        icon_name, icon_value = _category_icon_for_target(preferences, target)
+        if icon_value:
+            row.label(text="", icon_value=icon_value)
+        else:
+            row.label(text="", icon=icon_name)
+
+
+def _resolve_group_icon(group):
+    if group is None:
+        return "OUTLINER_COLLECTION", 0
+    return icons.resolve_icon(
+        group.icon_name,
+        group.icon_path,
+        group.bundled_icon,
+    )
+
+
+def _category_icon_for_target(preferences, target):
+    groups = getattr(preferences, "groups", None)
+    group_id = getattr(target, "group_id", "")
+    getter = getattr(groups, "get", None)
+    group = getter(group_id) if group_id and callable(getter) else None
+    return _resolve_group_icon(group)
 
 
 def _last_opened_timestamp(target) -> float:

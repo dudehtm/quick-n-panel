@@ -38,6 +38,10 @@ class ManifestTests(unittest.TestCase):
             manifest["build"]["paths_exclude_pattern"],
         )
         self.assertIn(
+            "/FUTURE_FEATURES.md",
+            manifest["build"]["paths_exclude_pattern"],
+        )
+        self.assertIn(
             "/.gitattributes",
             manifest["build"]["paths_exclude_pattern"],
         )

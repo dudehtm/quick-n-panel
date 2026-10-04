@@ -18,8 +18,8 @@ Quick N-panel is packaged as a modern Blender extension and provides:
 - compact popup with search, recent access, and up to eight favorites;
 - new-install defaults of a 400 px popup and original custom icon colors;
 - compact contextual shortcuts for View, Tool, Edit, and Item;
-- compact Library popover with categories, quick assignment, and a collapsible list
-  of every available tab;
+- separate Library and Categories popovers; Library lists every available tab and
+  Categories manages tabs grouped by category;
 - compact category-member management in the configuration panel;
 - six general-purpose groups created during initial setup;
 - bundled library of `QNP_*` icons for groups and tabs;
@@ -123,7 +123,7 @@ operators/favorites.py      Ordered favorites collection
 operators/groups.py         Categories, memberships, and ordering
 operators/library.py        Refresh and customization
 operators/launcher.py       Popup and native search
-ui/popup.py                 Compact and expanded layouts
+ui/popup.py                 Launcher, Library, and Categories popovers
 ui/sections/                Collapsible configuration panel content
 preferences.py              Persistent user settings root
 registration.py             Transactional, reversible registration
@@ -170,6 +170,9 @@ logs or screenshots.
 - Search uses `invoke_search_popup`; Blender controls its width and visible row
   count.
 - Native mode does not support animating the side popover as it opens.
+- Blender does not expose a generic scroll container for arbitrary popup grids;
+  large category layouts are currently measured before a scroll or pagination
+  strategy is selected.
 - Manually opened tabs are captured the next time the launcher is invoked,
   without a permanent background observer.
 - Interactive release tests currently require actual Blender 5.0-5.2

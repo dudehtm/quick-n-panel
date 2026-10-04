@@ -30,6 +30,8 @@ Run every release candidate in Blender 5.0, 5.1, and 5.2.
 ## Navigation
 
 - Invoke the launcher with `F5` over a 3D View.
+- Confirm `F5` opens the launcher with Library and Categories closed.
+- Confirm Library is not opened automatically in the current release.
 - Open a target while the sidebar is closed.
 - Confirm the native tab becomes active and the popup closes.
 - Repeat with two 3D Views and verify only the invoking area changes.
@@ -47,12 +49,18 @@ Run every release candidate in Blender 5.0, 5.1, and 5.2.
 - Add, replace, and remove up to eight favorites.
 - Reorder favorites in the configuration panel and confirm the popup stays clean.
 - Confirm a ninth favorite is rejected without changing the collection.
-- Confirm populated categories are ordered by available tab count in Library.
-- Confirm empty categories use compact labels and all available tabs remain accessible.
-- Use the `+` in populated and empty popup categories to assign or move a tab.
-- Assign more than five targets and confirm the popup shows five plus `+N more`.
-- With four populated categories, confirm `All Tabs` opens by default. Populate a
-  fifth category, reopen Library, and confirm `All Tabs` starts closed but expands.
+- Confirm the launcher shows separate `Library` and `Categories` buttons with
+  matching visual treatment.
+- Confirm populated categories follow the order configured in Categories, not
+  the number of assigned tabs.
+- Confirm every populated category displays all assigned tabs, including 20 or
+  more targets, without a `+N more` limit.
+- Confirm categories of different sizes are packed into two columns without
+  unnecessary vertical gaps.
+- Use the `+` in populated and empty category rows to assign or move a tab.
+- Confirm `Empty Categories (N)` starts collapsed and can be expanded temporarily.
+- Reopen with `F5` and confirm the empty-category section returns to collapsed.
+- Confirm `Library` contains all tabs and `Categories` contains no `All Tabs` list.
 - Select a category in the configuration panel and use its compact tab list to
   add, reorder, open, and remove members.
 - Remove a category member and confirm the tab remains available in Library.
@@ -87,9 +95,16 @@ Run every release candidate in Blender 5.0, 5.1, and 5.2.
 - Switch repeatedly between Original, White, and Custom; confirm popup icons and
   large selector thumbnails refresh without becoming empty or requiring a restart.
 - Confirm Favorites opens by default and the other configuration panels collapse.
-- Confirm the compact popup shows Search, Favorites, Library, and Configure.
-- Open Library and confirm the compact launcher remains behind the popover.
+- Confirm the compact popup shows Search, Favorites, Library, Categories, and
+  Configure.
+- Open Library and Categories separately and confirm the compact launcher remains
+  behind each popover.
 - Confirm categories use two columns and as many rows as required.
+- In `All Tabs`, confirm each target keeps its own icon and also shows its
+  category icon, including unassigned or deleted-category targets.
+- Test large category counts near all four screen edges and record the first
+  scale where content becomes inaccessible; scroll/pagination is intentionally
+  deferred.
 
 ## Cleanup
 

@@ -108,9 +108,22 @@ class QNP_PT_Diagnostics(_QNP_PT_ConfigurationSection, bpy.types.Panel):
         draw_diagnostics(self.layout, context, get_preferences(context))
 
 
+class QNP_PT_LibraryPopover(bpy.types.Panel):
+    bl_idname = "QNP_PT_launcher_library_popover"
+    bl_label = "Library"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "HEADER"
+    bl_ui_units_x = 24
+
+    def draw(self, context):
+        from .popup import draw_library_popover
+
+        draw_library_popover(self.layout, context)
+
+
 class QNP_PT_CategoriesPopover(bpy.types.Panel):
     bl_idname = "QNP_PT_launcher_categories_popover"
-    bl_label = "Library"
+    bl_label = "Categories"
     bl_space_type = "VIEW_3D"
     bl_region_type = "HEADER"
     bl_ui_units_x = 24
@@ -128,5 +141,6 @@ CLASSES = (
     QNP_PT_Library,
     QNP_PT_Appearance,
     QNP_PT_Diagnostics,
+    QNP_PT_LibraryPopover,
     QNP_PT_CategoriesPopover,
 )

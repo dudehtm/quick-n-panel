@@ -142,7 +142,7 @@ def main():
             assert preferences.compact_popup_width == 400
             assert preferences.icon_color_mode == "ORIGINAL"
             assert "panel" in bpy.types.UILayout.bl_rna.functions
-            assert hasattr(bpy.types.WindowManager, "qnp_all_tabs_expanded")
+            assert hasattr(bpy.types.WindowManager, "qnp_empty_categories_expanded")
             registered_ids = {
                 getattr(cls, "bl_idname", "") for cls in registration._registered_classes
             }
@@ -176,7 +176,7 @@ def main():
             # Extension updates unregister and register without removing the add-on record.
             registration.unregister_addon()
             assert not keymap._addon_keymaps
-            assert not hasattr(bpy.types.WindowManager, "qnp_all_tabs_expanded")
+            assert not hasattr(bpy.types.WindowManager, "qnp_empty_categories_expanded")
             assert icons._custom_previews is None
             assert icons._accent_previews is None
             assert not icons._retired_preview_collections

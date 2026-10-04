@@ -80,9 +80,9 @@ class QNP_OT_ShowLauncher(bpy.types.Operator):
         snapshot = scanner.refresh_catalog(context, force=True)
         navigation.remember_active_target(context, snapshot)
         ensure_starter_recents(preferences, context, snapshot)
-        from ..ui.popup import reset_all_tabs_expansion
+        from ..ui.popup import reset_popup_state
 
-        reset_all_tabs_expansion(context, preferences, snapshot.by_key)
+        reset_popup_state(context)
         return context.window_manager.invoke_popup(
             self,
             width=preferences.compact_popup_width,

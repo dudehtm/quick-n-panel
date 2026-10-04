@@ -34,10 +34,10 @@ CLASSES = (
 
 _registered_classes = []
 _is_registered = False
-_ALL_TABS_EXPANDED_PROPERTY = "qnp_all_tabs_expanded"
+_EMPTY_CATEGORIES_EXPANDED_PROPERTY = "qnp_empty_categories_expanded"
 
 
-def _all_tabs_expansion_updated(_window_manager, context):
+def _empty_categories_expansion_updated(_window_manager, context):
     region = getattr(context, "region", None)
     if region is not None:
         region.tag_redraw()
@@ -132,20 +132,20 @@ def _unregister_classes():
 
 
 def _register_runtime_properties():
-    if not hasattr(bpy.types.WindowManager, _ALL_TABS_EXPANDED_PROPERTY):
+    if not hasattr(bpy.types.WindowManager, _EMPTY_CATEGORIES_EXPANDED_PROPERTY):
         setattr(
             bpy.types.WindowManager,
-            _ALL_TABS_EXPANDED_PROPERTY,
+            _EMPTY_CATEGORIES_EXPANDED_PROPERTY,
             BoolProperty(
-                name="Show All Tabs",
-                description="Show every available tab in the Library popover",
-                default=True,
+                name="Show Empty Categories",
+                description="Show categories without assigned tabs",
+                default=False,
                 options={"HIDDEN", "SKIP_SAVE"},
-                update=_all_tabs_expansion_updated,
+                update=_empty_categories_expansion_updated,
             ),
         )
 
 
 def _unregister_runtime_properties():
-    if hasattr(bpy.types.WindowManager, _ALL_TABS_EXPANDED_PROPERTY):
-        delattr(bpy.types.WindowManager, _ALL_TABS_EXPANDED_PROPERTY)
+    if hasattr(bpy.types.WindowManager, _EMPTY_CATEGORIES_EXPANDED_PROPERTY):
+        delattr(bpy.types.WindowManager, _EMPTY_CATEGORIES_EXPANDED_PROPERTY)
