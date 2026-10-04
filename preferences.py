@@ -186,14 +186,14 @@ class QNP_Preferences(bpy.types.AddonPreferences):
         update=_preferences_updated,
     )
     auto_open_library: BoolProperty(
-        name="Open Library with F5 (Exp.)",
-        description="Experimental: also open the existing Library popover when F5 opens the launcher",
+        name="Also open Library with the launcher shortcut",
+        description="Experimental: also open the existing Library popover when the configured launcher shortcut opens the launcher",
         default=False,
         update=_auto_open_panel_updated,
     )
     auto_open_categories: BoolProperty(
-        name="Open Categories with F5 (Exp.)",
-        description="Experimental: also open the existing Categories popover when F5 opens the launcher",
+        name="Also open Categories with the launcher shortcut",
+        description="Experimental: also open the existing Categories popover when the configured launcher shortcut opens the launcher",
         default=False,
         update=_auto_open_panel_updated,
     )

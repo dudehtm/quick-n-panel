@@ -1,18 +1,18 @@
 """Detected sidebar tab library section."""
 
+from ... import keymap
 from ...core import scanner
 from ...core.catalog import split_metadata
 from ...core.memberships import target_group_ids
 from .groups import _draw_external_icon_controls
 
 
-def draw(layout, _context, preferences):
-    startup_box = layout.box()
-    startup_box.label(text="F5 Startup (Experimental)", icon="INFO")
-    startup_box.prop(preferences, "auto_open_library")
-    startup_box.label(
-        text="Open this popover with the launcher.",
-        icon="INFO",
+def draw(layout, context, preferences):
+    startup_row = layout.row(align=True)
+    startup_row.prop(
+        preferences,
+        "auto_open_library",
+        text=f"Also open Library with {keymap.shortcut_label(context)}",
     )
 
     snapshot = scanner.get_snapshot()

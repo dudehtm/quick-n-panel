@@ -1,16 +1,16 @@
 """Launcher group configuration section."""
 
+from ... import keymap
 from ...core import icons, scanner
 from ...preferences import display_name_for, favorite_keys, ordered_group_targets
 
 
 def draw(layout, context, preferences):
-    startup_box = layout.box()
-    startup_box.label(text="F5 Startup (Experimental)", icon="INFO")
-    startup_box.prop(preferences, "auto_open_categories")
-    startup_box.label(
-        text="Open this popover with the launcher.",
-        icon="INFO",
+    startup_row = layout.row(align=True)
+    startup_row.prop(
+        preferences,
+        "auto_open_categories",
+        text=f"Also open Categories with {keymap.shortcut_label(context)}",
     )
 
     list_row = layout.row()

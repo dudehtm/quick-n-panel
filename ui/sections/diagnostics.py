@@ -2,10 +2,12 @@
 
 import time
 
-from ...core import compatibility, scanner
+from ...core import compatibility, scanner, update_status
 
 
 def draw(layout, context, preferences):
+    _draw_update_status(layout, context)
+
     snapshot = scanner.get_snapshot()
     version = ".".join(str(part) for part in compatibility.blender_version())
     layout.label(text=f"Blender: {version}", icon="BLENDER")
@@ -46,3 +48,39 @@ def draw(layout, context, preferences):
         text="Import",
         icon="IMPORT",
     )
+
+
+def _draw_update_status(layout, context):
+    status = update_status.get_update_status(context)
+    box = layout.box()
+    box.label(text="Extension Updates", icon="FILE_REFRESH")
+    box.label(text=f"Installed version: {status.local_version or 'Unknown'}")
+
+    if status.remote_version:
+        box.label(text=f"Latest cached version: {status.remote_version}")
+    if status.repository_name:
+        box.label(text=f"Repository: {status.repository_name}")
+
+    if status.status == update_status.STATUS_UPDATE_AVAILABLE:
+        box.label(text="Update available", icon="INFO")
+    elif status.status == update_status.STATUS_CURRENT:
+        box.label(text="Up to date", icon="CHECKMARK")
+    elif status.status == update_status.STATUS_MANUAL:
+        box.label(text="Manual installation", icon="INFO")
+    elif status.status == update_status.STATUS_UNAVAILABLE:
+        box.label(text="Update status unavailable", icon="INFO")
+    elif status.status == update_status.STATUS_ERROR:
+        box.label(text="Update status error", icon="ERROR")
+    else:
+        box.label(text="Update status not checked", icon="INFO")
+
+    if status.message:
+        box.label(text=status.message, icon="INFO")
+    box.label(
+        text=f"Online access: {'Enabled' if update_status.online_access_enabled() else 'Disabled'}",
+        icon="CHECKMARK" if update_status.online_access_enabled() else "INFO",
+    )
+    if status.index_mtime:
+        box.label(
+            text=f"Blender index: {update_status.format_index_time(status.index_mtime)}",
+        )

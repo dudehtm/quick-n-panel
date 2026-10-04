@@ -142,6 +142,13 @@ Run every release candidate in Blender 5.0, 5.1, and 5.2.
 
 ## Update and Recovery
 
+- With an up-to-date Blender-managed installation, confirm the configuration
+  header stays silent and Diagnostics reports the installed and cached versions.
+- With a newer cached repository entry in an isolated test profile, confirm the
+  header shows `Update available` and Diagnostics shows both versions.
+- Confirm the update notice contains no install or download action and that a
+  manual `user_default` installation is reported as manually managed.
+
 - Update from an older configuration snapshot and confirm it is restored into
   the current schema without losing groups, favorites, history, hidden tabs,
   appearance, or icon assignments.

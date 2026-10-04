@@ -1,6 +1,9 @@
 import importlib
+import json
+from pathlib import Path
 import sys
 from types import ModuleType, SimpleNamespace
+import tempfile
 import unittest
 
 from package_bootstrap import PROJECT_ROOT, ensure_source_package
@@ -327,6 +330,44 @@ class ImportGraphTests(unittest.TestCase):
         ):
             self.assertFalse(hasattr(keymap_module, removed_feature), removed_feature)
 
+    def test_shortcut_label_prefers_the_user_configured_launcher_key(self):
+        keymap_module = importlib.import_module("quick_n_panel.keymap")
+
+        class FakeKeymaps:
+            def __init__(self, keymap):
+                self.keymap = keymap
+
+            def get(self, name):
+                return self.keymap if name == "3D View" else None
+
+        class FakeKeyItem:
+            idname = keymap_module.OPERATOR_ID
+            type = "F6"
+            active = True
+            ctrl = True
+            shift = False
+            alt = False
+
+            def to_string(self, *, compact=False):
+                return "Ctrl F6" if compact else "Ctrl F6"
+
+        context = SimpleNamespace(
+            window_manager=SimpleNamespace(
+                keyconfigs=SimpleNamespace(
+                    user=SimpleNamespace(
+                        keymaps=FakeKeymaps(
+                            SimpleNamespace(keymap_items=(FakeKeyItem(),))
+                        )
+                    ),
+                    addon=SimpleNamespace(
+                        keymaps=FakeKeymaps(SimpleNamespace(keymap_items=()))
+                    ),
+                )
+            )
+        )
+
+        self.assertEqual(keymap_module.shortcut_label(context), "Ctrl F6")
+
     def test_default_shortcut_is_plain_f5(self):
         constants = importlib.import_module("quick_n_panel.constants")
 
@@ -355,6 +396,80 @@ class ImportGraphTests(unittest.TestCase):
             icons_module._preview_icon_id(SimpleNamespace(icon_id=42)),
             42,
         )
+
+    def test_update_status_compares_extension_versions(self):
+        update_status = importlib.import_module("quick_n_panel.core.update_status")
+
+        self.assertEqual(update_status.compare_versions("1.0.1", "1.0.1"), 0)
+        self.assertLess(update_status.compare_versions("1.0.1", "1.1.0"), 0)
+        self.assertGreater(update_status.compare_versions("1.1.0", "1.0.1"), 0)
+        self.assertLess(update_status.compare_versions("1.1.0-alpha", "1.1.0"), 0)
+        self.assertIsNone(update_status.compare_versions("not-a-version", "1.0.0"))
+
+    def test_update_status_reads_only_quick_n_panel_from_blender_index(self):
+        update_status = importlib.import_module("quick_n_panel.core.update_status")
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository_path = root / "blender_org"
+            package_path = repository_path / "quick_n_panel"
+            index_path = repository_path / ".blender_ext" / "index.json"
+            package_path.mkdir(parents=True)
+            index_path.parent.mkdir(parents=True)
+            (package_path / "blender_manifest.toml").write_text(
+                'id = "quick_n_panel"\nversion = "1.0.1"\n',
+                encoding="utf-8",
+            )
+            index_path.write_text(
+                json.dumps(
+                    {
+                        "data": [
+                            {"id": "other_extension", "version": "99.0.0"},
+                            {"id": "quick_n_panel", "version": "1.1.0"},
+                            {"id": "quick_n_panel", "version": "1.0.2"},
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            repository = SimpleNamespace(
+                name="extensions.blender.org",
+                module="blender_org",
+                remote_url="https://extensions.blender.org/api/v1/extensions/",
+                use_remote_url=True,
+            )
+
+            status = update_status._build_status(
+                package_path / "blender_manifest.toml",
+                repository,
+                repository_path,
+                index_path,
+            )
+
+        self.assertEqual(status.status, update_status.STATUS_UPDATE_AVAILABLE)
+        self.assertEqual(status.local_version, "1.0.1")
+        self.assertEqual(status.remote_version, "1.1.0")
+
+    def test_update_status_marks_manual_installations_without_remote_repository(self):
+        update_status = importlib.import_module("quick_n_panel.core.update_status")
+
+        with tempfile.TemporaryDirectory() as directory:
+            manifest_path = Path(directory) / "blender_manifest.toml"
+            manifest_path.write_text('version = "1.1.0"\n', encoding="utf-8")
+            repository = SimpleNamespace(
+                name="User Default",
+                module="user_default",
+                remote_url="",
+                use_remote_url=False,
+            )
+            status = update_status._build_status(
+                manifest_path,
+                repository,
+                manifest_path.parent.parent,
+                None,
+            )
+
+        self.assertEqual(status.status, update_status.STATUS_MANUAL)
 
     def test_favorite_lists_do_not_draw_default_filter_controls(self):
         lists_module = importlib.import_module("quick_n_panel.ui.lists")

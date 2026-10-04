@@ -3,7 +3,7 @@
 import bpy
 
 from ..constants import CONFIG_CATEGORY
-from ..core import icons
+from ..core import icons, update_status
 from ..preferences import get_preferences
 from .sections.appearance import draw as draw_appearance
 from .sections.diagnostics import draw as draw_diagnostics
@@ -18,6 +18,11 @@ class QNP_PT_Configuration(bpy.types.Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = CONFIG_CATEGORY
+
+    def draw_header(self, context):
+        header = self.layout.row(align=True)
+        if update_status.get_update_status(context).update_available:
+            header.label(text="Update available", icon="INFO")
 
     def draw(self, context):
         layout = self.layout

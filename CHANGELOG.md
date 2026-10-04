@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added a Blender-managed update status notice in the configuration header and
+  detailed update information in Diagnostics. The extension only reads
+  Blender's cached repository index and never installs updates itself.
 - Reworked `New` detection to use Blender's enabled add-on registry instead of
   inferring add-on owners from retained panel targets.
 - Added exact module matching for legacy add-ons and Blender Extensions, including

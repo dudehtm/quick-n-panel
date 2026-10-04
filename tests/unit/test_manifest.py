@@ -14,7 +14,7 @@ class ManifestTests(unittest.TestCase):
 
         self.assertEqual(manifest["schema_version"], "1.0.0")
         self.assertEqual(manifest["id"], "quick_n_panel")
-        self.assertEqual(manifest["version"], "1.0.1")
+        self.assertEqual(manifest["version"], "1.1.0")
         self.assertEqual(manifest["name"], "Quick N-panel")
         self.assertEqual(manifest["maintainer"], "Dudehtm")
         self.assertEqual(manifest["type"], "add-on")
