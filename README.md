@@ -6,6 +6,9 @@ Blender 5.2. It detects add-on tabs in the 3D Viewport N-panel and lets you open
 them from a quick launcher. It does not copy panels, register third-party
 interfaces, or manage installations.
 
+The current source manifest is `1.1.0` and is not published yet; the latest
+public release is `1.0.1`.
+
 ## Features
 
 <img width="1919" height="985" alt="Captura de pantalla 2026-08-23 172606" src="https://github.com/user-attachments/assets/0a49ec8d-6301-48bb-9025-7e9dcde0913a" />
@@ -37,6 +40,11 @@ Quick N-panel is packaged as a modern Blender extension and provides:
 - previews for custom icons and accents;
 - `F5` launcher shortcut registered in the `3D View` keymap and customizable
   through Blender's standard `Preferences > Keymap` editor;
+- experimental automatic opening of either the Library or Categories popover when
+  the launcher shortcut is used; the two options are mutually exclusive and are
+  shown as compact one-line controls;
+- configuration-header update notice when Blender's cached Extensions index has a
+  newer Quick N-panel version, with detailed read-only status in Diagnostics;
 - recovery of targets that disappear and are registered again;
 - configuration recovery after disabling and re-enabling the extension;
 - atomic, versioned configuration snapshots with backup recovery;
@@ -65,7 +73,8 @@ To build the extension from a source checkout:
 
 3. Open Blender and select `Edit > Preferences > Get Extensions > Install from Disk`.
 4. Select the generated ZIP file and enable Quick N-panel.
-5. Open a 3D Viewport and press `F5`.
+5. Open a 3D Viewport and press the configured launcher shortcut (`F5` by
+   default).
 
 Management controls are available under `3D View > Sidebar > Quick N-panel`.
 
@@ -75,10 +84,15 @@ modern extension; do not move it to `scripts/addons`.
 
 ## Shortcut
 
-Quick N-panel registers `F5` in Blender's `3D View` keymap. To change or disable
-it, open `Edit > Preferences > Keymap` and search for `Quick N-panel` or
-`quick_n_panel.show_launcher`. The extension intentionally does not modify user
-keymaps or provide a separate shortcut editor.
+Quick N-panel registers `F5` by default in Blender's `3D View` keymap. To change
+or disable it, open `Edit > Preferences > Keymap` and search for `Quick N-panel`
+or `quick_n_panel.show_launcher`. The extension intentionally does not modify
+user keymaps or provide a separate shortcut editor. The Library and Categories
+configuration rows display the effective shortcut, including user changes.
+
+The experimental Library and Categories startup options open the selected
+existing popover together with the launcher. Only one can be enabled at a time;
+both are disabled by default.
 <img width="1920" height="1080" alt="QNP F" src="https://github.com/user-attachments/assets/98993f37-0bb5-4b70-b883-f1fe395d6298" />
 
 ## Included Icons
@@ -107,7 +121,7 @@ Sidecar migrations are applied sequentially before validation. Managed external
 icons are stored in the same extension-owned user-data directory and are deleted
 only after neither the current snapshot nor its backup references them.
 
-The current sidecar schema is `v8`. It stores the enabled add-on baseline
+The current sidecar schema is `v9`. It stores the enabled add-on baseline
 separately from retained tab metadata so unavailable or previously seen targets do
 not suppress future enable transitions.
 
@@ -125,6 +139,7 @@ core/navigation.py          Tab opening, activation, and history
 core/search.py              Normalization and approximate ranking
 core/icons.py               Previews, QNP_* library, and accents
 core/compatibility.py       Blender feature probes
+core/update_status.py       Read-only update status from Blender's cache
 persistence.py              Versioned snapshots and portable backups
 operators/favorites.py      Ordered favorites collection
 operators/groups.py         Categories, memberships, and ordering
@@ -134,7 +149,7 @@ ui/popup.py                 Launcher, Library, and Categories popovers
 ui/sections/                Collapsible configuration panel content
 preferences.py              Persistent user settings root
 registration.py             Transactional, reversible registration
-keymap.py                    Default shortcut registration and cleanup
+keymap.py                    Shortcut registration, labels, and cleanup
 ```
 
 A target's persistent identity has the following form:
@@ -179,6 +194,10 @@ logs or screenshots.
   a notification.
 - The first scan after a fresh install or schema migration creates a silent
   baseline. Use `F5` or `Refresh Detection` once before testing a new install.
+- Update status is read-only. It uses the repository index already cached by
+  Blender, is available only for Blender-managed remote repositories, and never
+  downloads or installs an update. Manual `user_default` installations are
+  reported as manually managed.
 - There is no public Blender event that identifies every installation. Detection
   runs during catalog scans, not through a permanent background observer.
 - An uninstall and reinstall performed entirely while Blender and Quick N-panel

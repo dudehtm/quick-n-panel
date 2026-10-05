@@ -46,12 +46,19 @@ Run every release candidate in Blender 5.0, 5.1, and 5.2.
 
 ## Navigation
 
-- Invoke the launcher with `F5` over a 3D View.
-- Confirm `F5` opens the launcher with Library and Categories closed by default.
-- Enable one `F5 Startup (Experimental)` option in its `Library` or
-  `Categories` section, reopen with `F5`, and confirm the selected existing
-  popover opens automatically with the launcher.
+- Invoke the launcher with the configured shortcut (`F5` by default) over a
+  3D View.
+- Confirm the configured shortcut opens the launcher with Library and Categories
+  closed by default.
+- Change the launcher shortcut in Blender's `Preferences > Keymap` (for example,
+  to `Ctrl F6`) and confirm the Library and Categories option labels show the new
+  shortcut.
+- Enable one `Also open Library with <shortcut>` or `Also open Categories with
+  <shortcut>` option, reopen with the configured shortcut, and confirm the
+  selected existing popover opens automatically with the launcher.
 - Enable the other experimental option and confirm the first one is disabled.
+- Confirm each experimental option is displayed as one compact row without a
+  repeated heading or explanatory row.
 - Open a target while the sidebar is closed.
 - Confirm the native tab becomes active and the popup closes.
 - Repeat with two 3D Views and verify only the invoking area changes.
@@ -109,7 +116,8 @@ Run every release candidate in Blender 5.0, 5.1, and 5.2.
 - Test UI scales 0.75, 1.0, 1.5, and 2.0.
 - Invoke near all four screen edges.
 - Test name-only and combined icon-and-name modes.
-- Confirm `F5 Startup (Experimental)` is disabled by default and clearly labeled.
+- Confirm the Library and Categories automatic-open options are disabled by
+  default, clearly labeled with the configured shortcut, and fit on one row.
 - Load valid and missing custom PNG icons.
 - Confirm missing icons use a safe fallback.
 - Confirm all 16 included `QNP_*` icons appear in both icon selectors.
@@ -148,6 +156,8 @@ Run every release candidate in Blender 5.0, 5.1, and 5.2.
   header shows `Update available` and Diagnostics shows both versions.
 - Confirm the update notice contains no install or download action and that a
   manual `user_default` installation is reported as manually managed.
+- Confirm a malformed or missing cached repository index produces a diagnostic
+  state without a header notice or network request.
 
 - Update from an older configuration snapshot and confirm it is restored into
   the current schema without losing groups, favorites, history, hidden tabs,

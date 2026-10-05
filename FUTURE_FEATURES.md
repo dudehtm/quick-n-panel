@@ -11,11 +11,16 @@ Estado: parcialmente implementado como opcion experimental.
 El Modo edicion permitiria personalizar visualmente el launcher sin convertir la
 configuracion normal en una interfaz compleja.
 
-Posibles funciones:
+Implementado:
 
-- decidir si `F5` abre solo el launcher o tambien despliega `Library` o
-  `Categories`;
-- activar o desactivar la apertura automatica de `Library` o `Categories`;
+- elegir si el atajo del launcher abre solo el launcher o tambien despliega
+  `Library` o `Categories`;
+- activar o desactivar la apertura automatica de `Library` o `Categories`, con una
+  sola opcion activa a la vez;
+- mostrar el atajo efectivo configurado por el usuario en ambas opciones;
+
+Pendiente:
+
 - elegir que bloques aparecen en el launcher;
 - cambiar la posicion de `Library`, `Categories` y `Configure`;
 - ordenar categorias directamente desde el popup;
