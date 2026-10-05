@@ -8,6 +8,7 @@ from .catalog import (
     module_owner_key,
     split_metadata,
 )
+from .memberships import group_memberships_for, set_group_memberships
 
 
 @dataclass(frozen=True, slots=True)
@@ -218,15 +219,22 @@ def _merge_target_settings(primary, secondary) -> bool:
             str(getattr(secondary, "display_name", "") or ""),
         )
 
-    primary_group = str(getattr(primary, "group_id", "") or "")
-    secondary_group = str(getattr(secondary, "group_id", "") or "")
-    if not primary_group and secondary_group:
-        changed |= _assign(primary, "group_id", secondary_group)
-        changed |= _assign(
-            primary,
-            "group_order",
-            _safe_int(getattr(secondary, "group_order", 0)),
-        )
+    primary_memberships = group_memberships_for(primary)
+    secondary_memberships = group_memberships_for(secondary)
+    merged_memberships = dict(primary_memberships)
+    for group_id, order in secondary_memberships.items():
+        merged_memberships.setdefault(group_id, order)
+    before_memberships = (
+        getattr(primary, "group_memberships", None),
+        getattr(primary, "group_id", ""),
+        getattr(primary, "group_order", 0),
+    )
+    set_group_memberships(primary, merged_memberships)
+    changed |= before_memberships != (
+        getattr(primary, "group_memberships", None),
+        getattr(primary, "group_id", ""),
+        getattr(primary, "group_order", 0),
+    )
 
     if bool(getattr(secondary, "hidden", False)):
         changed |= _assign(primary, "hidden", True)
@@ -315,7 +323,7 @@ def _preservation_score(record, index: int, favorite_keys: set[str]):
     customization = sum(
         (
             bool(str(getattr(record, "display_name", "") or "").strip()),
-            bool(str(getattr(record, "group_id", "") or "")),
+            bool(group_memberships_for(record)),
             bool(getattr(record, "hidden", False)),
             _has_custom_icon(record),
         )

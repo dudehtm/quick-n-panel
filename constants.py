@@ -4,7 +4,11 @@ ADDON_PACKAGE = __package__
 ADDON_ID = "quick_n_panel"
 CONFIG_CATEGORY = "Quick N-panel"
 TARGET_KEY_SEPARATOR = "|"
-MAX_FAVORITES = 8
+# Defensive storage ceiling; the launcher has no small user-facing cap.
+MAX_FAVORITE_RECORDS = 4096
+FAVORITES_VISIBLE_ROWS = 10
+MAX_NEW_ADDONS = 3
+NEW_ADDON_RETENTION_SECONDS = 7 * 24 * 60 * 60
 DIRECT_CATEGORIES = ("View", "Tool", "Edit", "Item")
 DEFAULT_COMPACT_POPUP_WIDTH = 400
 DEFAULT_ICON_COLOR_MODE = "ORIGINAL"

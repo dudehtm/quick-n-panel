@@ -16,12 +16,12 @@ from .constants import (
     DEFAULT_ICON_COLOR_MODE,
     DISPLAY_MODE_ITEMS,
     ICON_COLOR_MODE_ITEMS,
-    MAX_FAVORITES,
+    MAX_FAVORITE_RECORDS,
 )
 
 
 FORMAT_NAME = "quick_n_panel.preferences"
-FORMAT_VERSION = 5
+FORMAT_VERSION = 9
 SIDECAR_FILENAME = "preferences.json"
 LEGACY_SIDECAR_FILENAMES = ("preferences-v1.json",)
 MAX_SIDECAR_BYTES = 8 * 1024 * 1024
@@ -30,6 +30,8 @@ MAX_PORTABLE_ARCHIVE_BYTES = MAX_PORTABLE_BACKUP_BYTES + 1024 * 1024
 MAX_PORTABLE_ARCHIVE_ENTRIES = 5000
 MAX_GROUP_RECORDS = 256
 MAX_TARGET_RECORDS = 4096
+MAX_NEW_ADDON_RECORDS = 256
+MAX_OBSERVED_ADDON_RECORDS = 4096
 SAVE_DEBOUNCE_SECONDS = 0.75
 PORTABLE_PREFERENCES_FILENAME = "preferences.json"
 
@@ -47,6 +49,8 @@ ROOT_FIELDS = (
     "default_group_icons_initialized",
     "icon_enum_schema_version",
     "favorite_index",
+    "new_addons_initialized",
+    "observed_addons_initialized",
     "favorites_schema_version",
     "favorite_1",
     "favorite_2",
@@ -61,6 +65,8 @@ ROOT_FIELDS = (
     "icon_tint_color",
     "max_search_results",
     "include_builtin_tabs",
+    "auto_open_library",
+    "auto_open_categories",
 )
 
 COLLECTION_FIELDS = {
@@ -86,6 +92,7 @@ COLLECTION_FIELDS = {
         "last_opened_at",
         "group_id",
         "group_order",
+        "group_memberships",
         "hidden",
         "icon_name",
         "bundled_icon",
@@ -95,6 +102,16 @@ COLLECTION_FIELDS = {
         "name",
         "target_key",
     ),
+    "new_addons": (
+        "name",
+        "addon_key",
+        "target_key",
+        "discovered_at",
+    ),
+    "observed_addons": (
+        "name",
+        "addon_key",
+    ),
 }
 
 _ROOT_BOOL_FIELDS = {
@@ -102,6 +119,10 @@ _ROOT_BOOL_FIELDS = {
     "default_group_icons_initialized",
     "starter_recents_pending",
     "include_builtin_tabs",
+    "auto_open_library",
+    "auto_open_categories",
+    "new_addons_initialized",
+    "observed_addons_initialized",
 }
 _ROOT_INT_FIELDS = {
     "target_index",
@@ -123,6 +144,7 @@ _ROOT_STRING_FIELDS = {
 _RECORD_STRING_FIELDS = {
     "name",
     "group_id",
+    "group_memberships",
     "display_name",
     "icon_name",
     "bundled_icon",
@@ -136,6 +158,8 @@ _RECORD_STRING_FIELDS = {
     "first_opened_at",
     "last_opened_at",
     "target_key",
+    "addon_key",
+    "discovered_at",
 }
 _BUILTIN_ICON_IDS = {item[0] for item in BUILTIN_ICON_ITEMS}
 _DISPLAY_MODE_IDS = {item[0] for item in DISPLAY_MODE_ITEMS}
@@ -148,6 +172,8 @@ _ROOT_DEFAULTS = {
     "default_group_icons_initialized": False,
     "icon_enum_schema_version": 0,
     "favorite_index": 0,
+    "new_addons_initialized": False,
+    "observed_addons_initialized": False,
     "favorites_schema_version": 0,
     "favorite_1": "",
     "favorite_2": "",
@@ -162,6 +188,8 @@ _ROOT_DEFAULTS = {
     "icon_tint_color": (1.0, 1.0, 1.0),
     "max_search_results": 128,
     "include_builtin_tabs": False,
+    "auto_open_library": False,
+    "auto_open_categories": False,
 }
 
 
@@ -628,6 +656,8 @@ def _validate_payload(payload) -> dict:
         "groups": "group_id",
         "targets": "native_key",
         "favorites": "target_key",
+        "new_addons": "addon_key",
+        "observed_addons": "addon_key",
     }
     for collection_name, fields in COLLECTION_FIELDS.items():
         records = payload.get(collection_name)
@@ -636,7 +666,9 @@ def _validate_payload(payload) -> dict:
         limits = {
             "groups": MAX_GROUP_RECORDS,
             "targets": MAX_TARGET_RECORDS,
-            "favorites": MAX_FAVORITES,
+            "favorites": MAX_FAVORITE_RECORDS,
+            "new_addons": MAX_NEW_ADDON_RECORDS,
+            "observed_addons": MAX_OBSERVED_ADDON_RECORDS,
         }
         if len(records) > limits[collection_name]:
             raise ValueError(f"too many {collection_name} records")
@@ -702,6 +734,8 @@ def _validate_root_value(field, value):
 
 
 def _validate_record_value(field, value):
+    if field == "group_memberships":
+        return _validate_group_memberships(value)
     if field in _RECORD_STRING_FIELDS:
         if not isinstance(value, str):
             raise ValueError(f"{field} must be a string")
@@ -717,6 +751,28 @@ def _validate_record_value(field, value):
             raise ValueError("hidden must be a boolean")
         return value
     raise ValueError(f"unsupported record field: {field}")
+
+
+def _validate_group_memberships(value):
+    if not isinstance(value, str):
+        raise ValueError("group_memberships must be a string")
+    if not value:
+        return ""
+    try:
+        decoded = json.loads(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError("group_memberships must contain valid JSON") from error
+    if not isinstance(decoded, dict) or len(decoded) > MAX_GROUP_RECORDS:
+        raise ValueError("group_memberships must be an object")
+
+    normalized = {}
+    for group_id, order in decoded.items():
+        if not isinstance(group_id, str) or not group_id:
+            raise ValueError("group_memberships contains an invalid category")
+        if type(order) is not int or not 0 <= order <= 2_147_483_647:
+            raise ValueError("group_memberships contains an invalid order")
+        normalized[group_id] = order
+    return json.dumps(normalized, sort_keys=True, separators=(",", ":"))
 
 
 def _apply_payload(preferences, payload):
@@ -776,11 +832,13 @@ def _run_application_migrations(preferences) -> None:
         ensure_default_groups,
         ensure_display_mode,
         ensure_favorites,
+        ensure_group_memberships,
     )
 
     ensure_display_mode(preferences)
     icons.migrate_bundled_icon_values(preferences)
     ensure_default_groups(preferences)
+    ensure_group_memberships(preferences)
     ensure_favorites(preferences)
     ensure_activity_history(preferences)
 
@@ -898,11 +956,79 @@ def _migrate_v4_to_v5(payload: dict) -> dict:
     return migrated
 
 
+def _migrate_v5_to_v6(payload: dict) -> dict:
+    """Allow one target to belong to multiple categories."""
+    migrated = dict(payload)
+    migrated["targets"] = [
+        {
+            **record,
+            "group_memberships": record.get("group_memberships")
+            or _legacy_group_memberships(record),
+        }
+        if isinstance(record, dict)
+        else record
+        for record in payload.get("targets", ())
+    ]
+    migrated["version"] = 6
+    return migrated
+
+
+def _migrate_v6_to_v7(payload: dict) -> dict:
+    """Add the persistent queue for newly detected add-ons."""
+    migrated = dict(payload)
+    source_root = payload.get("root")
+    root = dict(source_root) if isinstance(source_root, dict) else {}
+    root.setdefault("new_addons_initialized", bool(payload.get("targets")))
+    migrated["root"] = root
+    migrated["new_addons"] = list(payload.get("new_addons", ()))
+    migrated["version"] = 7
+    return migrated
+
+
+def _migrate_v7_to_v8(payload: dict) -> dict:
+    """Track enabled add-ons independently from retained catalog targets."""
+    migrated = dict(payload)
+    source_root = payload.get("root")
+    root = dict(source_root) if isinstance(source_root, dict) else {}
+    root.setdefault("observed_addons_initialized", False)
+    migrated["root"] = root
+    migrated["observed_addons"] = list(payload.get("observed_addons", ()))
+    migrated["version"] = 8
+    return migrated
+
+
+def _migrate_v8_to_v9(payload: dict) -> dict:
+    """Add the opt-in experimental startup popover choices."""
+    migrated = dict(payload)
+    source_root = payload.get("root")
+    root = dict(source_root) if isinstance(source_root, dict) else {}
+    root.setdefault("auto_open_library", False)
+    root.setdefault("auto_open_categories", False)
+    migrated["root"] = root
+    migrated["version"] = 9
+    return migrated
+
+
+def _legacy_group_memberships(record):
+    group_id = record.get("group_id", "")
+    if not group_id:
+        return ""
+    return json.dumps(
+        {group_id: record.get("group_order", 0)},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
 _FORMAT_MIGRATIONS = {
     1: _migrate_v1_to_v2,
     2: _migrate_v2_to_v3,
     3: _migrate_v3_to_v4,
     4: _migrate_v4_to_v5,
+    5: _migrate_v5_to_v6,
+    6: _migrate_v6_to_v7,
+    7: _migrate_v7_to_v8,
+    8: _migrate_v8_to_v9,
 }
 
 

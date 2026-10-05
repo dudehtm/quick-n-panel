@@ -14,7 +14,7 @@ class ManifestTests(unittest.TestCase):
 
         self.assertEqual(manifest["schema_version"], "1.0.0")
         self.assertEqual(manifest["id"], "quick_n_panel")
-        self.assertEqual(manifest["version"], "1.0.1")
+        self.assertEqual(manifest["version"], "1.1.0")
         self.assertEqual(manifest["name"], "Quick N-panel")
         self.assertEqual(manifest["maintainer"], "Dudehtm")
         self.assertEqual(manifest["type"], "add-on")
@@ -35,6 +35,10 @@ class ManifestTests(unittest.TestCase):
         self.assertFalse((PROJECT_ROOT / "icons" / "DudehtmLogob.png").exists())
         self.assertIn(
             "/EXPORTACION_Y_DISTRIBUCION.md",
+            manifest["build"]["paths_exclude_pattern"],
+        )
+        self.assertIn(
+            "/FUTURE_FEATURES.md",
             manifest["build"]["paths_exclude_pattern"],
         )
         self.assertIn(

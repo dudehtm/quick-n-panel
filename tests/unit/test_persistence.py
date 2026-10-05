@@ -53,6 +53,7 @@ def target_defaults():
         "last_opened_at": "",
         "group_id": "",
         "group_order": 0,
+        "group_memberships": "",
         "hidden": False,
         "icon_name": "PLUGIN",
         "bundled_icon": "NONE",
@@ -64,6 +65,19 @@ def favorite_defaults():
     return {"name": "", "target_key": ""}
 
 
+def new_addon_defaults():
+    return {
+        "name": "",
+        "addon_key": "",
+        "target_key": "",
+        "discovered_at": "",
+    }
+
+
+def observed_addon_defaults():
+    return {"name": "", "addon_key": ""}
+
+
 class FakePreferences:
     def __init__(self):
         self.target_index = 0
@@ -72,6 +86,8 @@ class FakePreferences:
         self.default_group_icons_initialized = False
         self.icon_enum_schema_version = 0
         self.favorite_index = 0
+        self.new_addons_initialized = False
+        self.observed_addons_initialized = False
         self.favorites_schema_version = 0
         self.favorite_1 = ""
         self.favorite_2 = ""
@@ -86,9 +102,13 @@ class FakePreferences:
         self.icon_tint_color = (1.0, 1.0, 1.0)
         self.max_search_results = 128
         self.include_builtin_tabs = False
+        self.auto_open_library = False
+        self.auto_open_categories = False
         self.groups = FakeCollection(group_defaults)
         self.targets = FakeCollection(target_defaults)
         self.favorites = FakeCollection(favorite_defaults)
+        self.new_addons = FakeCollection(new_addon_defaults)
+        self.observed_addons = FakeCollection(observed_addon_defaults)
         self._stored_keys = set()
 
     def keys(self):
@@ -100,6 +120,8 @@ def configured_preferences():
     preferences.default_groups_initialized = True
     preferences.default_group_icons_initialized = True
     preferences.icon_enum_schema_version = 2
+    preferences.new_addons_initialized = True
+    preferences.observed_addons_initialized = True
     preferences.favorites_schema_version = 1
     preferences.activity_schema_version = 1
     preferences.compact_popup_width = 611
@@ -108,6 +130,7 @@ def configured_preferences():
     preferences.icon_tint_color = (0.2, 0.4, 0.8)
     preferences.max_search_results = 64
     preferences.include_builtin_tabs = True
+    preferences.auto_open_library = True
 
     group = preferences.groups.add()
     group.name = "custom"
@@ -136,6 +159,14 @@ def configured_preferences():
     favorite = preferences.favorites.add()
     favorite.name = target.native_key
     favorite.target_key = target.native_key
+    new_addon = preferences.new_addons.add()
+    new_addon.name = "example"
+    new_addon.addon_key = "example"
+    new_addon.target_key = target.native_key
+    new_addon.discovered_at = "15.000000"
+    observed_addon = preferences.observed_addons.add()
+    observed_addon.name = "example"
+    observed_addon.addon_key = "example"
     preferences.last_target_key = target.native_key
     preferences.last_observed_target_key = target.native_key
     return preferences
@@ -278,6 +309,52 @@ class PersistenceTests(unittest.TestCase):
         self.assertEqual(migrated["version"], persistence.FORMAT_VERSION)
         self.assertNotIn("icon_intensity", migrated["root"])
 
+    def test_v5_snapshot_migrates_legacy_category_membership(self):
+        payload = persistence.snapshot_preferences(configured_preferences())
+        payload["version"] = 5
+        payload["targets"][0].pop("group_memberships")
+
+        migrated = persistence._validate_payload(payload)
+
+        self.assertEqual(migrated["version"], persistence.FORMAT_VERSION)
+        self.assertEqual(migrated["targets"][0]["group_memberships"], '{"custom":0}')
+
+    def test_v6_snapshot_adds_new_addon_defaults(self):
+        payload = persistence.snapshot_preferences(configured_preferences())
+        payload["version"] = 6
+        payload["root"].pop("new_addons_initialized")
+        payload.pop("new_addons")
+
+        migrated = persistence._validate_payload(payload)
+
+        self.assertEqual(migrated["version"], persistence.FORMAT_VERSION)
+        self.assertTrue(migrated["root"]["new_addons_initialized"])
+        self.assertEqual(migrated["new_addons"], [])
+
+    def test_v7_snapshot_starts_enabled_addon_baseline(self):
+        payload = persistence.snapshot_preferences(configured_preferences())
+        payload["version"] = 7
+        payload["root"].pop("observed_addons_initialized")
+        payload.pop("observed_addons")
+
+        migrated = persistence._validate_payload(payload)
+
+        self.assertEqual(migrated["version"], persistence.FORMAT_VERSION)
+        self.assertFalse(migrated["root"]["observed_addons_initialized"])
+        self.assertEqual(migrated["observed_addons"], [])
+
+    def test_v8_snapshot_adds_experimental_startup_defaults(self):
+        payload = persistence.snapshot_preferences(configured_preferences())
+        payload["version"] = 8
+        payload["root"].pop("auto_open_library")
+        payload["root"].pop("auto_open_categories")
+
+        migrated = persistence._validate_payload(payload)
+
+        self.assertEqual(migrated["version"], persistence.FORMAT_VERSION)
+        self.assertFalse(migrated["root"]["auto_open_library"])
+        self.assertFalse(migrated["root"]["auto_open_categories"])
+
     def test_invalid_uniform_icon_color_is_rejected(self):
         payload = persistence.snapshot_preferences(configured_preferences())
         payload["root"]["icon_tint_color"] = [1.0, -0.1, 0.5]
@@ -378,6 +455,18 @@ class PersistenceTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "too many groups"):
             persistence._validate_payload(payload)
+
+    def test_large_favorite_collection_is_preserved(self):
+        payload = persistence.snapshot_preferences(configured_preferences())
+        payload["favorites"] = [
+            {"name": f"favorite-{index}", "target_key": f"target-{index}"}
+            for index in range(30)
+        ]
+
+        validated = persistence._validate_payload(payload)
+
+        self.assertEqual(len(validated["favorites"]), 30)
+        self.assertEqual(validated["favorites"][29]["target_key"], "target-29")
 
     def test_clean_flush_replaces_a_corrupt_snapshot_from_live_preferences(self):
         source = configured_preferences()

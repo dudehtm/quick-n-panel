@@ -12,6 +12,7 @@ sys.path.insert(0, str(PROJECT_ROOT.parent))
 
 
 TEST_CATEGORY = "Edit"
+TEST_ADDON_MODULE = "bl_ext.user_default.qnp_lifecycle_test"
 
 
 class QNPLIFECYCLE_PT_probe(bpy.types.Panel):
@@ -25,9 +26,23 @@ class QNPLIFECYCLE_PT_probe(bpy.types.Panel):
         self.layout.label(text="Probe")
 
 
-def _new_addon_record():
+class QNPLIFECYCLE_PT_extension_probe(bpy.types.Panel):
+    bl_idname = "QNPLIFECYCLE_PT_extension_probe"
+    bl_label = "Extension Probe"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Lifecycle Extension"
+
+    def draw(self, _context):
+        self.layout.label(text="Extension Probe")
+
+
+QNPLIFECYCLE_PT_extension_probe.__module__ = TEST_ADDON_MODULE
+
+
+def _new_addon_record(module="quick_n_panel"):
     addon = bpy.context.preferences.addons.new()
-    addon.module = "quick_n_panel"
+    addon.module = module
     return addon
 
 
@@ -57,11 +72,35 @@ def _test_direct_categories(scanner):
 
 
 def _assert_configuration(preferences, target_key):
+    from quick_n_panel.core.memberships import target_in_group
+
+    target = preferences.targets.get(target_key)
     assert preferences.compact_popup_width == 611
     assert preferences.groups.get("lifecycle_group") is not None
-    assert preferences.targets.get(target_key).display_name == "Restored Probe"
-    assert preferences.targets.get(target_key).group_id == "lifecycle_group"
+    assert preferences.groups.get("lifecycle_secondary") is not None
+    assert target.display_name == "Restored Probe"
+    assert target.group_id == "lifecycle_group"
+    assert target_in_group(target, "lifecycle_group")
+    assert target_in_group(target, "lifecycle_secondary")
     assert preferences.favorites.get(target_key) is not None
+
+
+def _test_extension_addon_detection(scanner, preferences):
+    addon = _new_addon_record(TEST_ADDON_MODULE)
+    bpy.utils.register_class(QNPLIFECYCLE_PT_extension_probe)
+    try:
+        scanner.refresh_catalog(bpy.context, force=True)
+        assert any(
+            entry.addon_key == TEST_ADDON_MODULE
+            for entry in preferences.new_addons
+        )
+    finally:
+        bpy.utils.unregister_class(QNPLIFECYCLE_PT_extension_probe)
+        bpy.context.preferences.addons.remove(addon)
+        for index in reversed(range(len(preferences.new_addons))):
+            if preferences.new_addons[index].addon_key == TEST_ADDON_MODULE:
+                preferences.new_addons.remove(index)
+        scanner.refresh_catalog(bpy.context, force=True)
 
 
 def _test_category_member_management(preferences, target, group):
@@ -141,8 +180,11 @@ def main():
             assert preferences.starter_recents_pending
             assert preferences.compact_popup_width == 400
             assert preferences.icon_color_mode == "ORIGINAL"
+            assert not preferences.new_addons
+            assert preferences.observed_addons_initialized
             assert "panel" in bpy.types.UILayout.bl_rna.functions
-            assert hasattr(bpy.types.WindowManager, "qnp_all_tabs_expanded")
+            assert hasattr(bpy.types.WindowManager, "qnp_empty_categories_expanded")
+            assert hasattr(bpy.types.WindowManager, "qnp_launcher_favorite_index")
             registered_ids = {
                 getattr(cls, "bl_idname", "") for cls in registration._registered_classes
             }
@@ -151,6 +193,7 @@ def main():
             assert keymap._addon_keymaps[0][1].idname == keymap.OPERATOR_ID
             _test_icon_preview_recovery(icons)
             _test_direct_categories(scanner)
+            _test_extension_addon_detection(scanner, preferences)
 
             target_key = f"VIEW_3D|UI|{TEST_CATEGORY}"
             target = preferences.targets.get(target_key)
@@ -165,6 +208,15 @@ def main():
                 target_key=target.native_key,
             )
             assert result == {"FINISHED"}, result
+            secondary_group = preferences.groups.add()
+            secondary_group.name = "lifecycle_secondary"
+            secondary_group.group_id = "lifecycle_secondary"
+            secondary_group.display_name = "Lifecycle Secondary"
+            result = bpy.ops.quick_n_panel.add_target_to_group(
+                group_id=secondary_group.group_id,
+                target_key=target.native_key,
+            )
+            assert result == {"FINISHED"}, result
             target.display_name = "Restored Probe"
 
             favorite = preferences.favorites.add()
@@ -176,7 +228,8 @@ def main():
             # Extension updates unregister and register without removing the add-on record.
             registration.unregister_addon()
             assert not keymap._addon_keymaps
-            assert not hasattr(bpy.types.WindowManager, "qnp_all_tabs_expanded")
+            assert not hasattr(bpy.types.WindowManager, "qnp_empty_categories_expanded")
+            assert not hasattr(bpy.types.WindowManager, "qnp_launcher_favorite_index")
             assert icons._custom_previews is None
             assert icons._accent_previews is None
             assert not icons._retired_preview_collections

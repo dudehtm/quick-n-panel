@@ -1,6 +1,9 @@
 import importlib
+import json
+from pathlib import Path
 import sys
 from types import ModuleType, SimpleNamespace
+import tempfile
 import unittest
 
 from package_bootstrap import PROJECT_ROOT, ensure_source_package
@@ -86,22 +89,32 @@ class ImportGraphTests(unittest.TestCase):
         preferences = importlib.import_module("quick_n_panel.preferences")
         properties = importlib.import_module("quick_n_panel.properties")
 
-        self.assertEqual(len(registration.CLASSES), 35)
+        self.assertEqual(len(registration.CLASSES), 41)
         identifiers = [
             getattr(cls, "bl_idname", cls.__name__)
             for cls in registration.CLASSES
         ]
         self.assertEqual(len(identifiers), len(set(identifiers)))
         self.assertIn("QNP_PT_launcher_categories_popover", identifiers)
+        self.assertIn("QNP_PT_launcher_library_popover", identifiers)
         self.assertIn("quick_n_panel.open_direct_category", identifiers)
         self.assertIn("quick_n_panel.export_configuration", identifiers)
         self.assertIn("quick_n_panel.import_configuration", identifiers)
+        self.assertIn("QNP_UL_launcher_favorites", identifiers)
+        self.assertIn("QNP_UL_launcher_favorite_config", identifiers)
         self.assertNotIn("quick_n_panel.capture_shortcut", identifiers)
         self.assertNotIn("quick_n_panel.show_categories", identifiers)
         self.assertNotIn("QNP_PT_launcher_shortcuts", identifiers)
         self.assertEqual(
             set(persistence.ROOT_FIELDS),
-            set(preferences.QNP_Preferences.__annotations__) - {"groups", "targets", "favorites"},
+            set(preferences.QNP_Preferences.__annotations__)
+            - {
+                "groups",
+                "targets",
+                "favorites",
+                "new_addons",
+                "observed_addons",
+            },
         )
         self.assertEqual(
             set(persistence.COLLECTION_FIELDS["groups"]),
@@ -115,6 +128,147 @@ class ImportGraphTests(unittest.TestCase):
             set(persistence.COLLECTION_FIELDS["favorites"]),
             set(properties.QNP_PG_Favorite.__annotations__),
         )
+        self.assertEqual(
+            set(persistence.COLLECTION_FIELDS["new_addons"]),
+            set(properties.QNP_PG_NewAddon.__annotations__),
+        )
+        self.assertEqual(
+            set(persistence.COLLECTION_FIELDS["observed_addons"]),
+            set(properties.QNP_PG_ObservedAddon.__annotations__),
+        )
+
+    def test_scanner_detects_same_key_addon_reincarnation(self):
+        scanner = importlib.import_module("quick_n_panel.core.scanner")
+
+        class FakeAddon:
+            def __init__(self, module, pointer):
+                self.module = module
+                self.pointer = pointer
+
+            def as_pointer(self):
+                return self.pointer
+
+        addon = FakeAddon("bl_ext.user_default.sample", 10)
+        context = SimpleNamespace(
+            preferences=SimpleNamespace(addons=(addon,)),
+        )
+        scanner.invalidate_catalog()
+        try:
+            keys, incarnations = scanner._enabled_addon_state(context)
+            self.assertEqual(keys, {"bl_ext.user_default.sample"})
+            scanner._remember_addon_state(keys, incarnations)
+
+            addon.pointer = 20
+            keys, incarnations = scanner._enabled_addon_state(context)
+            self.assertEqual(
+                scanner._transitioned_addon_keys(keys, incarnations),
+                {"bl_ext.user_default.sample"},
+            )
+            scanner._remember_addon_state(
+                keys,
+                incarnations,
+                {"bl_ext.user_default.sample": (("SAMPLE_PT_main", object()),)},
+            )
+            self.assertEqual(
+                scanner._transitioned_addon_keys(
+                    keys,
+                    incarnations,
+                    {"bl_ext.user_default.sample": (("SAMPLE_PT_main", object()),)},
+                ),
+                {"bl_ext.user_default.sample"},
+            )
+        finally:
+            scanner.invalidate_catalog()
+
+    def test_catalog_snapshot_materializes_indexes(self):
+        scanner = importlib.import_module("quick_n_panel.core.scanner")
+        catalog = importlib.import_module("quick_n_panel.core.catalog")
+        target = catalog.TargetDescriptor(
+            native_key="sample",
+            native_category="Sample",
+            panels=(catalog.PanelDescriptor("SAMPLE_PT_main", "Main", "sample"),),
+        )
+
+        snapshot = scanner.CatalogSnapshot(targets=(target,))
+
+        self.assertIs(snapshot.by_key, snapshot.by_key)
+        self.assertIs(snapshot.by_key["sample"], target)
+        self.assertEqual(snapshot.panel_count, 1)
+
+    def test_refresh_catalog_returns_fresh_snapshot_before_global_state_checks(self):
+        scanner = importlib.import_module("quick_n_panel.core.scanner")
+        snapshot = scanner.CatalogSnapshot(
+            targets=(),
+            scanned_at=scanner.time.monotonic(),
+        )
+        original_snapshot = scanner._snapshot
+        original_include = scanner._last_include_builtin
+        original_preferences = scanner._preferences_or_none
+        original_enabled = scanner._enabled_addon_state
+        original_panels = scanner._panel_incarnation_state
+        original_scan = scanner.scan_sidebar_targets
+        scanner._snapshot = snapshot
+        scanner._last_include_builtin = False
+        scanner._preferences_or_none = lambda _context: SimpleNamespace(
+            include_builtin_tabs=False
+        )
+        scanner._enabled_addon_state = lambda _context: self.fail(
+            "fresh cache should return before addon enumeration"
+        )
+        scanner._panel_incarnation_state = lambda _keys: self.fail(
+            "fresh cache should return before panel enumeration"
+        )
+        scanner.scan_sidebar_targets = lambda **_kwargs: self.fail(
+            "fresh cache should return before scanning"
+        )
+        try:
+            self.assertIs(scanner.refresh_catalog(SimpleNamespace()), snapshot)
+        finally:
+            scanner._snapshot = original_snapshot
+            scanner._last_include_builtin = original_include
+            scanner._preferences_or_none = original_preferences
+            scanner._enabled_addon_state = original_enabled
+            scanner._panel_incarnation_state = original_panels
+            scanner.scan_sidebar_targets = original_scan
+
+    def test_direct_category_availability_uses_shared_cache(self):
+        scanner = importlib.import_module("quick_n_panel.core.scanner")
+        catalog = importlib.import_module("quick_n_panel.core.catalog")
+        target = catalog.TargetDescriptor(
+            native_key="VIEW_3D|UI|Edit",
+            native_category="Edit",
+            panels=(catalog.PanelDescriptor("EDIT_PT_main", "Main", "sample"),),
+        )
+        context = SimpleNamespace(
+            area=SimpleNamespace(type="VIEW_3D"),
+            active_object=object(),
+        )
+        cache = {}
+        calls = []
+        original_direct = scanner.DIRECT_CATEGORIES
+        original_visible = scanner._target_has_visible_root_panel
+        scanner.DIRECT_CATEGORIES = ("Edit",)
+        scanner._target_has_visible_root_panel = lambda *_args, **_kwargs: calls.append(
+            True
+        ) or True
+        try:
+            first = scanner.available_direct_categories(
+                context,
+                snapshot=scanner.CatalogSnapshot(targets=(target,)),
+                availability_cache=cache,
+            )
+            second = scanner.available_direct_categories(
+                context,
+                snapshot=scanner.CatalogSnapshot(targets=(target,)),
+                availability_cache=cache,
+            )
+        finally:
+            scanner.DIRECT_CATEGORIES = original_direct
+            scanner._target_has_visible_root_panel = original_visible
+
+        self.assertEqual(first, ("Edit",))
+        self.assertEqual(second, ("Edit",))
+        self.assertEqual(len(calls), 1)
 
     def test_keymap_only_registers_and_unregisters_the_default_shortcut(self):
         keymap_module = importlib.import_module("quick_n_panel.keymap")
@@ -176,6 +330,44 @@ class ImportGraphTests(unittest.TestCase):
         ):
             self.assertFalse(hasattr(keymap_module, removed_feature), removed_feature)
 
+    def test_shortcut_label_prefers_the_user_configured_launcher_key(self):
+        keymap_module = importlib.import_module("quick_n_panel.keymap")
+
+        class FakeKeymaps:
+            def __init__(self, keymap):
+                self.keymap = keymap
+
+            def get(self, name):
+                return self.keymap if name == "3D View" else None
+
+        class FakeKeyItem:
+            idname = keymap_module.OPERATOR_ID
+            type = "F6"
+            active = True
+            ctrl = True
+            shift = False
+            alt = False
+
+            def to_string(self, *, compact=False):
+                return "Ctrl F6" if compact else "Ctrl F6"
+
+        context = SimpleNamespace(
+            window_manager=SimpleNamespace(
+                keyconfigs=SimpleNamespace(
+                    user=SimpleNamespace(
+                        keymaps=FakeKeymaps(
+                            SimpleNamespace(keymap_items=(FakeKeyItem(),))
+                        )
+                    ),
+                    addon=SimpleNamespace(
+                        keymaps=FakeKeymaps(SimpleNamespace(keymap_items=()))
+                    ),
+                )
+            )
+        )
+
+        self.assertEqual(keymap_module.shortcut_label(context), "Ctrl F6")
+
     def test_default_shortcut_is_plain_f5(self):
         constants = importlib.import_module("quick_n_panel.constants")
 
@@ -204,6 +396,173 @@ class ImportGraphTests(unittest.TestCase):
             icons_module._preview_icon_id(SimpleNamespace(icon_id=42)),
             42,
         )
+
+    def test_update_status_compares_extension_versions(self):
+        update_status = importlib.import_module("quick_n_panel.core.update_status")
+
+        self.assertEqual(update_status.compare_versions("1.0.1", "1.0.1"), 0)
+        self.assertLess(update_status.compare_versions("1.0.1", "1.1.0"), 0)
+        self.assertGreater(update_status.compare_versions("1.1.0", "1.0.1"), 0)
+        self.assertLess(update_status.compare_versions("1.1.0-alpha", "1.1.0"), 0)
+        self.assertIsNone(update_status.compare_versions("not-a-version", "1.0.0"))
+
+    def test_update_status_reads_only_quick_n_panel_from_blender_index(self):
+        update_status = importlib.import_module("quick_n_panel.core.update_status")
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository_path = root / "blender_org"
+            package_path = repository_path / "quick_n_panel"
+            index_path = repository_path / ".blender_ext" / "index.json"
+            package_path.mkdir(parents=True)
+            index_path.parent.mkdir(parents=True)
+            (package_path / "blender_manifest.toml").write_text(
+                'id = "quick_n_panel"\nversion = "1.0.1"\n',
+                encoding="utf-8",
+            )
+            index_path.write_text(
+                json.dumps(
+                    {
+                        "data": [
+                            {"id": "other_extension", "version": "99.0.0"},
+                            {"id": "quick_n_panel", "version": "1.1.0"},
+                            {"id": "quick_n_panel", "version": "1.0.2"},
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            repository = SimpleNamespace(
+                name="extensions.blender.org",
+                module="blender_org",
+                remote_url="https://extensions.blender.org/api/v1/extensions/",
+                use_remote_url=True,
+            )
+
+            status = update_status._build_status(
+                package_path / "blender_manifest.toml",
+                repository,
+                repository_path,
+                index_path,
+            )
+
+        self.assertEqual(status.status, update_status.STATUS_UPDATE_AVAILABLE)
+        self.assertEqual(status.local_version, "1.0.1")
+        self.assertEqual(status.remote_version, "1.1.0")
+
+    def test_update_status_marks_manual_installations_without_remote_repository(self):
+        update_status = importlib.import_module("quick_n_panel.core.update_status")
+
+        with tempfile.TemporaryDirectory() as directory:
+            manifest_path = Path(directory) / "blender_manifest.toml"
+            manifest_path.write_text('version = "1.1.0"\n', encoding="utf-8")
+            repository = SimpleNamespace(
+                name="User Default",
+                module="user_default",
+                remote_url="",
+                use_remote_url=False,
+            )
+            status = update_status._build_status(
+                manifest_path,
+                repository,
+                manifest_path.parent.parent,
+                None,
+            )
+
+        self.assertEqual(status.status, update_status.STATUS_MANUAL)
+
+    def test_favorite_lists_do_not_draw_default_filter_controls(self):
+        lists_module = importlib.import_module("quick_n_panel.ui.lists")
+
+        for list_class in (
+            lists_module.QNP_UL_LauncherFavorites,
+            lists_module.QNP_UL_FavoriteConfig,
+        ):
+            self.assertIsNone(list_class.draw_filter(None, None, None))
+            self.assertEqual(
+                list_class.filter_items(None, None, None, "favorites"),
+                ([], []),
+            )
+
+    def test_experimental_startup_popovers_are_mutually_exclusive(self):
+        preferences_module = importlib.import_module("quick_n_panel.preferences")
+        preferences = SimpleNamespace(
+            auto_open_library=True,
+            auto_open_categories=True,
+        )
+        original_updated = preferences_module._preferences_updated
+        updates = []
+        preferences_module._preferences_updated = (
+            lambda *_args: updates.append(True)
+        )
+        try:
+            preferences_module._auto_open_panel_updated(preferences, None)
+        finally:
+            preferences_module._preferences_updated = original_updated
+
+        self.assertTrue(preferences.auto_open_library)
+        self.assertFalse(preferences.auto_open_categories)
+        self.assertEqual(updates, [True])
+
+    def test_f5_startup_popover_reuses_existing_panel(self):
+        launcher_module = importlib.import_module("quick_n_panel.operators.launcher")
+        bpy = importlib.import_module("bpy")
+
+        class FakeTimers:
+            def __init__(self):
+                self.callback = None
+
+            def register(self, callback, *, first_interval):
+                self.callback = callback
+                self.first_interval = first_interval
+
+            def unregister(self, callback):
+                if self.callback is callback:
+                    self.callback = None
+
+        timers = FakeTimers()
+        calls = []
+        original_timers = getattr(bpy.app, "timers", None)
+        original_ops = getattr(bpy, "ops", None)
+        bpy.app.timers = timers
+        bpy.ops = SimpleNamespace(
+            wm=SimpleNamespace(
+                call_panel=lambda **kwargs: calls.append(kwargs) or {"FINISHED"}
+            )
+        )
+        try:
+            scheduled = launcher_module.schedule_auto_open_panel(
+                SimpleNamespace(window=None, area=None),
+                SimpleNamespace(auto_open_library=True, auto_open_categories=False),
+            )
+            self.assertTrue(scheduled)
+            self.assertIsNotNone(timers.callback)
+            self.assertIsNone(timers.callback())
+        finally:
+            launcher_module.cancel_pending_auto_open()
+            bpy.app.timers = original_timers
+            bpy.ops = original_ops
+
+        self.assertEqual(
+            calls,
+            [{"name": "QNP_PT_launcher_library_popover", "keep_open": True}],
+        )
+
+    def test_bundled_icon_value_uses_cached_preview_id(self):
+        icons_module = importlib.import_module("quick_n_panel.core.icons")
+        original_values = dict(icons_module._bundled_icon_values)
+        original_custom_value = icons_module.custom_icon_value
+        icons_module._bundled_icon_values.clear()
+        icons_module._bundled_icon_values["QNP_Test"] = 42
+        icons_module.custom_icon_value = lambda _filepath: self.fail(
+            "cached bundled icons must not resolve the file again"
+        )
+        try:
+            self.assertEqual(icons_module.bundled_icon_value("QNP_Test"), 42)
+        finally:
+            icons_module.custom_icon_value = original_custom_value
+            icons_module._bundled_icon_values.clear()
+            icons_module._bundled_icon_values.update(original_values)
 
     def test_retired_previews_survive_a_redraw_cycle_before_cleanup(self):
         icons_module = importlib.import_module("quick_n_panel.core.icons")
@@ -237,7 +596,7 @@ class ImportGraphTests(unittest.TestCase):
         self.assertEqual(removed, [first, second])
         self.assertEqual(redraws, [True, True])
 
-    def test_library_orders_categories_by_available_target_count(self):
+    def test_library_preserves_manual_category_order(self):
         popup_module = importlib.import_module("quick_n_panel.ui.popup")
         groups = (
             SimpleNamespace(group_id="empty", display_name="Empty"),
@@ -284,14 +643,14 @@ class ImportGraphTests(unittest.TestCase):
         self.assertEqual([target.native_key for target in available], ["A", "B", "C"])
         self.assertEqual(
             [group.group_id for group, _targets in grouped],
-            ["large", "small", "empty"],
+            ["empty", "large", "small"],
         )
         self.assertEqual(
-            [target.native_key for target in grouped[0][1]],
+            [target.native_key for target in grouped[1][1]],
             ["B", "C"],
         )
 
-    def test_popup_category_add_excludes_members_and_appends_moved_tab(self):
+    def test_popup_category_add_keeps_memberships_in_other_categories(self):
         choices_module = importlib.import_module("quick_n_panel.operators.choices")
         groups_module = importlib.import_module("quick_n_panel.operators.groups")
 
@@ -368,10 +727,27 @@ class ImportGraphTests(unittest.TestCase):
         self.assertEqual([item[0] for item in all_items], ["A", "B", "C"])
         self.assertEqual([item[0] for item in items], ["B", "C"])
         self.assertEqual(result, {"FINISHED"})
-        self.assertEqual(targets.get("B").group_id, "destination")
-        self.assertEqual(targets.get("B").group_order, 3)
+        self.assertEqual(targets.get("B").group_id, "other")
+        self.assertEqual(targets.get("B").group_order, 4)
+        self.assertEqual(
+            [
+                target.native_key
+                for target in groups_module.ordered_group_targets(
+                    preferences,
+                    "destination",
+                )
+            ],
+            ["A", "B"],
+        )
+        self.assertEqual(
+            [
+                target.native_key
+                for target in groups_module.ordered_group_targets(preferences, "other")
+            ],
+            ["B"],
+        )
 
-    def test_popup_categories_stay_compact_without_reorder_controls(self):
+    def test_popup_category_draws_all_targets_without_overflow_controls(self):
         popup_module = importlib.import_module("quick_n_panel.ui.popup")
         drawn = []
         labels = []
@@ -398,7 +774,20 @@ class ImportGraphTests(unittest.TestCase):
 
         targets = tuple(
             SimpleNamespace(native_key=key)
-            for key in ("A", "B", "C", "D", "E", "F")
+            for key in (
+                "A",
+                "B",
+                "C",
+                "D",
+                "E",
+                "F",
+                "G",
+                "H",
+                "I",
+                "J",
+                "K",
+                "L",
+            )
         )
         group = SimpleNamespace(
             group_id="group",
@@ -431,76 +820,436 @@ class ImportGraphTests(unittest.TestCase):
             popup_module._draw_add_target_to_group = original_add
             popup_module._draw_target_button = original_target
 
-        self.assertEqual([key for key, _kwargs in drawn], ["A", "B", "C", "D", "E"])
-        self.assertEqual([kwargs for _key, kwargs in drawn], [{"compact": True}] * 5)
-        self.assertIn("+1 more", labels)
+        self.assertEqual([key for key, _kwargs in drawn], list("ABCDEFGHIJKL"))
+        self.assertEqual(
+            [kwargs for _key, kwargs in drawn],
+            [{"compact": True, "show_favorite": True}] * 12,
+        )
+        self.assertNotIn("more", " ".join(labels))
 
-    def test_all_tabs_collapses_at_five_populated_categories(self):
+    def test_populated_categories_use_the_shortest_column(self):
         popup_module = importlib.import_module("quick_n_panel.ui.popup")
-        expansion_states = []
-        drawn_targets = []
-        populated_count = 4
+
+        class FakeColumn:
+            def __init__(self, index):
+                self.index = index
+
+        class FakeColumnsRow:
+            def __init__(self):
+                self.next_index = 0
+
+            def column(self, *, align):
+                column = FakeColumn(self.next_index)
+                self.next_index += 1
+                return column
+
+        class FakeLayout:
+            def split(self, *, factor, align):
+                return FakeColumnsRow()
+
+        populated = tuple(
+            (
+                SimpleNamespace(group_id=group_id),
+                tuple(SimpleNamespace(native_key=f"{group_id}_{index}") for index in range(size)),
+            )
+            for group_id, size in (("three", 3), ("ten", 10), ("one_a", 1), ("one_b", 1))
+        )
+        drawn = []
+        original_group = popup_module._draw_group
+        popup_module._draw_group = (
+            lambda parent, _context, _preferences, group, _targets, **_kwargs: drawn.append(
+                (group.group_id, parent.index)
+            )
+        )
+        try:
+            popup_module._draw_populated_categories(
+                FakeLayout(),
+                object(),
+                object(),
+                populated,
+                available_count=20,
+            )
+        finally:
+            popup_module._draw_group = original_group
+
+        self.assertEqual(
+            drawn,
+            [("three", 0), ("ten", 1), ("one_a", 0), ("one_b", 0)],
+        )
+
+    def test_empty_categories_start_collapsed_and_can_expand(self):
+        popup_module = importlib.import_module("quick_n_panel.ui.popup")
+        props = []
+        grid_options = []
+        drawn_empty = []
 
         class FakeLayout:
             def label(self, *, text, **_kwargs):
                 pass
 
-            def grid_flow(self, **_kwargs):
+            def row(self, *, align=False):
                 return self
+
+            def prop(self, _owner, property_name, **kwargs):
+                props.append((property_name, kwargs))
+
+            def separator(self, **_kwargs):
+                pass
+
+            def grid_flow(self, **kwargs):
+                grid_options.append(kwargs)
+                return self
+
+        target = SimpleNamespace(native_key="A")
+        populated_group = SimpleNamespace(group_id="populated")
+        empty_group = SimpleNamespace(group_id="empty")
+        grouped = ((populated_group, (target,)), (empty_group, ()))
+        context = SimpleNamespace(
+            window_manager=SimpleNamespace(qnp_empty_categories_expanded=False)
+        )
+        original_snapshot = popup_module.scanner.get_snapshot
+        original_contents = popup_module._library_contents
+        original_populated = popup_module._draw_populated_categories
+        original_empty = popup_module._draw_empty_group
+        popup_module.scanner.get_snapshot = lambda: SimpleNamespace(by_key={"A": target})
+        popup_module._library_contents = lambda _preferences, _available_keys: (
+            (target,),
+            grouped,
+        )
+        popup_module._draw_populated_categories = lambda *_args, **_kwargs: None
+        popup_module._draw_empty_group = (
+            lambda _parent, group, **_kwargs: drawn_empty.append(group.group_id)
+        )
+        try:
+            popup_module._draw_categories_grid(FakeLayout(), context, object())
+            collapsed_props = list(props)
+            context.window_manager.qnp_empty_categories_expanded = True
+            popup_module._draw_categories_grid(FakeLayout(), context, object())
+        finally:
+            popup_module.scanner.get_snapshot = original_snapshot
+            popup_module._library_contents = original_contents
+            popup_module._draw_populated_categories = original_populated
+            popup_module._draw_empty_group = original_empty
+
+        self.assertEqual(collapsed_props[-1][0], "qnp_empty_categories_expanded")
+        self.assertEqual(collapsed_props[-1][1]["text"], "Empty Categories (1)")
+        self.assertEqual(collapsed_props[-1][1]["icon"], "TRIA_RIGHT")
+        self.assertEqual(grid_options[-1]["columns"], 3)
+        self.assertEqual(drawn_empty, ["empty"])
+
+    def test_reset_popup_state_closes_empty_categories(self):
+        popup_module = importlib.import_module("quick_n_panel.ui.popup")
+        context = SimpleNamespace(
+            window_manager=SimpleNamespace(
+                qnp_empty_categories_expanded=True,
+                qnp_launcher_favorite_index=7,
+            )
+        )
+
+        popup_module.reset_popup_state(context)
+
+        self.assertFalse(context.window_manager.qnp_empty_categories_expanded)
+        self.assertEqual(context.window_manager.qnp_launcher_favorite_index, 0)
+
+    def test_launcher_favorites_use_a_scrollable_ten_row_list(self):
+        popup_module = importlib.import_module("quick_n_panel.ui.popup")
+        template_lists = []
+
+        class FakeLayout:
+            enabled = True
+
+            def box(self):
+                return self
+
+            def column(self, *, align):
+                return self
+
+            def row(self, *, align=False):
+                return self
+
+            def label(self, *, text, **_kwargs):
+                pass
+
+            def separator(self, **_kwargs):
+                pass
+
+            def operator(self, _identifier, **_kwargs):
+                return SimpleNamespace()
+
+            def template_list(self, *args, **kwargs):
+                template_lists.append((args, kwargs))
+
+        class FakeFavorites(list):
+            pass
+
+        favorites = FakeFavorites(
+            SimpleNamespace(target_key=f"target_{index}") for index in range(30)
+        )
+        preferences = SimpleNamespace(favorites=favorites)
+        context = SimpleNamespace(
+            window_manager=SimpleNamespace(qnp_launcher_favorite_index=0)
+        )
+        original_icon = popup_module.icons.bundled_icon_value
+        popup_module.icons.bundled_icon_value = lambda _name: 0
+        try:
+            popup_module._draw_favorites(FakeLayout(), context, preferences)
+        finally:
+            popup_module.icons.bundled_icon_value = original_icon
+
+        self.assertEqual(len(template_lists), 1)
+        args, kwargs = template_lists[0]
+        self.assertEqual(args[:6], (
+            "QNP_UL_launcher_favorites",
+            "popup",
+            preferences,
+            "favorites",
+            context.window_manager,
+            "qnp_launcher_favorite_index",
+        ))
+        self.assertEqual(kwargs["rows"], 10)
+        self.assertEqual(kwargs["maxrows"], 10)
+
+    def test_favorite_configuration_uses_the_same_scrollable_row_count(self):
+        favorites_ui = importlib.import_module("quick_n_panel.ui.sections.favorites")
+        template_lists = []
+
+        class FakeLayout:
+            def label(self, *, text, **_kwargs):
+                pass
+
+            def template_list(self, *args, **kwargs):
+                template_lists.append((args, kwargs))
 
             def separator(self, **_kwargs):
                 pass
 
             def row(self, *, align=False):
-                self.align = align
                 return self
 
-            def prop(self, owner, property_name, **_kwargs):
-                expansion_states.append(getattr(owner, property_name))
+            def operator(self, _identifier, **_kwargs):
+                return SimpleNamespace()
 
-        available_target = SimpleNamespace(native_key="A")
+        preferences = SimpleNamespace(
+            favorites=[SimpleNamespace(target_key=f"target_{index}") for index in range(30)],
+            favorite_index=0,
+        )
+        favorites_ui.draw(FakeLayout(), None, preferences)
 
-        def library_contents(_preferences, _available_keys):
-            grouped = tuple(
-                (
-                    SimpleNamespace(group_id=f"group_{index}"),
-                    (available_target,),
+        self.assertEqual(len(template_lists), 1)
+        args, kwargs = template_lists[0]
+        self.assertEqual(args[:6], (
+            "QNP_UL_launcher_favorite_config",
+            "configuration",
+            preferences,
+            "favorites",
+            preferences,
+            "favorite_index",
+        ))
+        self.assertEqual(kwargs["rows"], 10)
+        self.assertEqual(kwargs["maxrows"], 10)
+
+    def test_new_addon_block_shows_only_available_three_with_dismissal(self):
+        popup_module = importlib.import_module("quick_n_panel.ui.popup")
+        labels = []
+        drawn = []
+
+        class FakeLayout:
+            def separator(self, **_kwargs):
+                pass
+
+            def label(self, *, text, **_kwargs):
+                labels.append(text)
+
+        class FakeTargets(list):
+            def get(self, target_key):
+                return next(
+                    (target for target in self if target.native_key == target_key),
+                    None,
                 )
-                for index in range(populated_count)
-            )
-            return (available_target,), grouped
 
-        original_snapshot = popup_module.scanner.get_snapshot
-        original_contents = popup_module._library_contents
-        original_group = popup_module._draw_group
-        original_target = popup_module._draw_target_button
-        popup_module.scanner.get_snapshot = lambda: SimpleNamespace(
-            by_key={"A": available_target}
-        )
-        popup_module._library_contents = library_contents
-        popup_module._draw_group = lambda *_args, **_kwargs: None
-        popup_module._draw_target_button = (
-            lambda _parent, _context, _preferences, target_key, **_kwargs: (
-                drawn_targets.append(target_key)
+        targets = FakeTargets(
+            SimpleNamespace(
+                native_key=f"target_{index}",
+                hidden=False,
             )
+            for index in range(4)
         )
-        context = SimpleNamespace(
-            window_manager=SimpleNamespace(qnp_all_tabs_expanded=True)
+        preferences = SimpleNamespace(targets=targets)
+        entries = tuple(
+            SimpleNamespace(
+                target_key=f"target_{index}",
+                addon_key=f"addon_{index}",
+            )
+            for index in range(4)
+        )
+        original_entries = popup_module.new_addon_entries
+        original_snapshot = popup_module.scanner.get_snapshot
+        original_button = popup_module._draw_target_button
+        popup_module.new_addon_entries = lambda _preferences: entries
+        popup_module.scanner.get_snapshot = lambda: SimpleNamespace(
+            by_key={target.native_key: target for target in targets}
+        )
+        popup_module._draw_target_button = (
+            lambda _parent, _context, _preferences, target_key, **kwargs: drawn.append(
+                (target_key, kwargs)
+            )
         )
         try:
-            popup_module.reset_all_tabs_expansion(context, object(), {"A": object()})
-            popup_module._draw_categories_grid(FakeLayout(), context, object())
-            populated_count = 5
-            popup_module.reset_all_tabs_expansion(context, object(), {"A": object()})
-            popup_module._draw_categories_grid(FakeLayout(), context, object())
+            popup_module._draw_new_addons(FakeLayout(), SimpleNamespace(), preferences)
         finally:
+            popup_module.new_addon_entries = original_entries
             popup_module.scanner.get_snapshot = original_snapshot
-            popup_module._library_contents = original_contents
-            popup_module._draw_group = original_group
+            popup_module._draw_target_button = original_button
+
+        self.assertEqual(labels, ["New"])
+        self.assertEqual(len(drawn), 3)
+        self.assertEqual(drawn[0][0], "target_0")
+        self.assertEqual(drawn[0][1]["compact"], True)
+        self.assertEqual(drawn[0][1]["dismiss_addon_key"], "addon_0")
+
+    def test_library_popover_draws_all_tabs_with_category_context(self):
+        popup_module = importlib.import_module("quick_n_panel.ui.popup")
+        labels = []
+        drawn = []
+
+        class FakeLayout:
+            def label(self, *, text, **_kwargs):
+                labels.append(text)
+
+            def grid_flow(self, **_kwargs):
+                return self
+
+        targets = tuple(
+            SimpleNamespace(
+                native_key=key,
+                display_name=key,
+                native_category=key,
+                group_id="",
+                group_order=0,
+            )
+            for key in ("A", "B")
+        )
+        preferences = SimpleNamespace(groups=(), targets=targets)
+        context = SimpleNamespace()
+        original_preferences = popup_module.get_preferences
+        original_refresh = popup_module.scanner.refresh_catalog
+        original_snapshot = popup_module.scanner.get_snapshot
+        original_target = popup_module._draw_target_button
+        refresh_calls = []
+        popup_module.get_preferences = lambda _context: preferences
+        popup_module.scanner.refresh_catalog = lambda _context: refresh_calls.append(True)
+        popup_module.scanner.get_snapshot = lambda: SimpleNamespace(
+            by_key={target.native_key: target for target in targets}
+        )
+        popup_module._draw_target_button = (
+            lambda _parent, _context, _preferences, target_key, **kwargs: drawn.append(
+                (target_key, kwargs)
+            )
+        )
+        try:
+            popup_module.draw_library_popover(FakeLayout(), context)
+        finally:
+            popup_module.get_preferences = original_preferences
+            popup_module.scanner.refresh_catalog = original_refresh
+            popup_module.scanner.get_snapshot = original_snapshot
             popup_module._draw_target_button = original_target
 
-        self.assertEqual(expansion_states, [True, False])
-        self.assertEqual(drawn_targets, ["A"])
+        self.assertEqual(labels, ["All Tabs (2)"])
+        self.assertEqual(refresh_calls, [])
+        self.assertEqual(
+            [
+                (
+                    key,
+                    {
+                        name: value
+                        for name, value in kwargs.items()
+                        if name != "draw_state"
+                    },
+                )
+                for key, kwargs in drawn
+            ],
+            [
+                ("A", {"compact": True, "show_category_icon": True}),
+                ("B", {"compact": True, "show_category_icon": True}),
+            ],
+        )
+        self.assertTrue(all(kwargs.get("draw_state") for _key, kwargs in drawn))
+
+    def test_launcher_draws_library_and_categories_popovers(self):
+        popup_module = importlib.import_module("quick_n_panel.ui.popup")
+        popovers = []
+        operators = []
+        refresh_calls = []
+
+        class FakeLayout:
+            def separator(self, **_kwargs):
+                pass
+
+            def row(self, **_kwargs):
+                return self
+
+            def popover(self, **kwargs):
+                popovers.append(kwargs)
+
+            def operator(self, operator_id, **kwargs):
+                operators.append((operator_id, kwargs))
+                return SimpleNamespace()
+
+        preferences = SimpleNamespace()
+        original_preferences = popup_module.get_preferences
+        original_refresh = popup_module.scanner.refresh_catalog
+        original_search = popup_module._draw_search
+        original_favorites = popup_module._draw_favorites
+        original_direct = popup_module._draw_direct_categories
+        popup_module.get_preferences = lambda _context: preferences
+        popup_module.scanner.refresh_catalog = (
+            lambda _context: refresh_calls.append(True)
+        )
+        popup_module._draw_search = lambda *_args: None
+        popup_module._draw_favorites = lambda *_args: None
+        popup_module._draw_direct_categories = lambda *_args, **_kwargs: False
+        try:
+            popup_module.draw_launcher_popup(FakeLayout(), SimpleNamespace())
+        finally:
+            popup_module.get_preferences = original_preferences
+            popup_module.scanner.refresh_catalog = original_refresh
+            popup_module._draw_search = original_search
+            popup_module._draw_favorites = original_favorites
+            popup_module._draw_direct_categories = original_direct
+
+        self.assertEqual(
+            [popover["panel"] for popover in popovers],
+            ["QNP_PT_launcher_library_popover", "QNP_PT_launcher_categories_popover"],
+        )
+        self.assertEqual(operators[0][0], "quick_n_panel.open_configuration")
+        self.assertEqual(refresh_calls, [])
+
+    def test_all_tabs_category_icon_uses_group_and_unassigned_fallbacks(self):
+        popup_module = importlib.import_module("quick_n_panel.ui.popup")
+
+        class FakeGroups(list):
+            def get(self, group_id):
+                return next((group for group in self if group.group_id == group_id), None)
+
+        group = SimpleNamespace(
+            group_id="group",
+            icon_name="PLUGIN",
+            icon_path="",
+            bundled_icon="QNP_Modeling",
+        )
+        preferences = SimpleNamespace(groups=FakeGroups([group]))
+        assigned = SimpleNamespace(group_id="group")
+        unassigned = SimpleNamespace(group_id="")
+        original_resolve = popup_module.icons.resolve_icon
+        popup_module.icons.resolve_icon = lambda *_args: ("PLUGIN", 42)
+        try:
+            assigned_icon = popup_module._category_icon_for_target(preferences, assigned)
+            unassigned_icon = popup_module._category_icon_for_target(preferences, unassigned)
+        finally:
+            popup_module.icons.resolve_icon = original_resolve
+
+        self.assertEqual(assigned_icon, ("PLUGIN", 42))
+        self.assertEqual(unassigned_icon, ("OUTLINER_COLLECTION", 0))
 
     def test_group_operator_moves_directionally_and_normalizes_order(self):
         groups_module = importlib.import_module("quick_n_panel.operators.groups")
@@ -623,7 +1372,7 @@ class ImportGraphTests(unittest.TestCase):
             )
             for index, key in enumerate(("A", "B"))
         )
-        preferences = SimpleNamespace(targets=tuple(targets))
+        preferences = SimpleNamespace(targets=tuple(targets), favorites=())
         group = SimpleNamespace(group_id="group")
         original_exists = groups_ui.scanner.target_exists
         original_resolve = groups_ui.icons.resolve_icon
@@ -638,6 +1387,7 @@ class ImportGraphTests(unittest.TestCase):
         identifiers = [identifier for identifier, _properties in operators]
         self.assertEqual(identifiers.count("quick_n_panel.add_target_to_group"), 1)
         self.assertEqual(identifiers.count("quick_n_panel.open_target"), 2)
+        self.assertEqual(identifiers.count("quick_n_panel.toggle_favorite"), 2)
         self.assertEqual(identifiers.count("quick_n_panel.move_target_in_group"), 4)
         self.assertEqual(identifiers.count("quick_n_panel.remove_target_from_group"), 2)
         self.assertIn("Tabs (2)", labels)
@@ -923,8 +1673,10 @@ class ImportGraphTests(unittest.TestCase):
 
         original_refresh = launcher_module.scanner.refresh_catalog
         original_items = launcher_module._search_target_items
-        launcher_module.scanner.refresh_catalog = lambda _context: None
-        launcher_module._search_target_items = lambda _operator, _context: [("target",)]
+        launcher_module.scanner.refresh_catalog = lambda _context, **_kwargs: None
+        launcher_module._search_target_items = (
+            lambda _operator, _context, **_kwargs: [("target",)]
+        )
         try:
             search_result = launcher_module.QNP_OT_SearchTargets().invoke(context, None)
             group_result = groups_module.QNP_OT_AssignTargetGroup().invoke(context, None)
@@ -984,16 +1736,16 @@ class ImportGraphTests(unittest.TestCase):
         preferences_module.ensure_favorites(preferences)
         self.assertEqual(preferences_module.favorite_keys(preferences), ())
 
-    def test_favorite_merge_deduplicates_and_stops_at_eight(self):
+    def test_favorite_merge_deduplicates_without_a_small_ui_limit(self):
         preferences_module = importlib.import_module("quick_n_panel.preferences")
         merged = preferences_module._merge_favorite_keys(
             ("A", "B", "A", ""),
-            tuple("CDEFGHIJ"),
+            tuple("CDEFGHIJKLMNOPQRSTUVWXYZ"),
         )
 
-        self.assertEqual(merged, tuple("ABCDEFGH"))
+        self.assertEqual(merged, tuple("ABCDEFGHIJKLMNOPQRSTUVWXYZ"))
 
-    def test_favorite_operators_append_swap_move_remove_and_limit(self):
+    def test_favorite_operators_append_swap_move_remove_beyond_ten(self):
         favorites_module = importlib.import_module("quick_n_panel.operators.favorites")
         preferences_module = importlib.import_module("quick_n_panel.preferences")
         preferences = SimpleNamespace(
@@ -1003,16 +1755,13 @@ class ImportGraphTests(unittest.TestCase):
         original_get_preferences = favorites_module.get_preferences
         favorites_module.get_preferences = lambda _context: preferences
         try:
-            for target_key in "ABCDEFGH":
+            for target_key in "ABCDEFGHIJKLMNOPQRST":
                 operator = favorites_module.QNP_OT_AssignFavorite()
                 operator.index = -1
                 operator.target_key = target_key
                 self.assertEqual(operator.execute(None), {"FINISHED"})
 
-            overflow = favorites_module.QNP_OT_AssignFavorite()
-            overflow.index = -1
-            overflow.target_key = "I"
-            self.assertEqual(overflow.execute(None), {"CANCELLED"})
+            self.assertEqual(len(preferences.favorites), 20)
 
             swap = favorites_module.QNP_OT_AssignFavorite()
             swap.index = 0
@@ -1032,7 +1781,7 @@ class ImportGraphTests(unittest.TestCase):
             self.assertEqual(preferences_module.favorite_keys(preferences)[0], "B")
 
             toggle = favorites_module.QNP_OT_ToggleFavorite()
-            toggle.target_key = "I"
+            toggle.target_key = "U"
             self.assertEqual(toggle.execute(None), {"FINISHED"})
 
             toggle_existing = favorites_module.QNP_OT_ToggleFavorite()
@@ -1041,13 +1790,13 @@ class ImportGraphTests(unittest.TestCase):
             self.assertNotIn("B", preferences_module.favorite_keys(preferences))
 
             refill = favorites_module.QNP_OT_ToggleFavorite()
-            refill.target_key = "J"
+            refill.target_key = "V"
             self.assertEqual(refill.execute(None), {"FINISHED"})
 
-            overflow = favorites_module.QNP_OT_ToggleFavorite()
-            overflow.target_key = "K"
-            overflow.report = lambda *_args: None
-            self.assertEqual(overflow.execute(None), {"CANCELLED"})
+            beyond_ten = favorites_module.QNP_OT_ToggleFavorite()
+            beyond_ten.target_key = "W"
+            self.assertEqual(beyond_ten.execute(None), {"FINISHED"})
+            self.assertGreater(len(preferences.favorites), 20)
         finally:
             favorites_module.get_preferences = original_get_preferences
 

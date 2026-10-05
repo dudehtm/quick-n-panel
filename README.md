@@ -6,6 +6,9 @@ Blender 5.2. It detects add-on tabs in the 3D Viewport N-panel and lets you open
 them from a quick launcher. It does not copy panels, register third-party
 interfaces, or manage installations.
 
+The current source manifest is `1.1.0` and is not published yet; the latest
+public release is `1.0.1`.
+
 ## Features
 
 <img width="1919" height="985" alt="Captura de pantalla 2026-08-23 172606" src="https://github.com/user-attachments/assets/0a49ec8d-6301-48bb-9025-7e9dcde0913a" />
@@ -15,24 +18,33 @@ Quick N-panel is packaged as a modern Blender extension and provides:
 - detection of `VIEW_3D` / `UI` panels;
 - grouping by native `bl_category` tab;
 - navigation through `Region.active_panel_category`;
-- compact popup with search, recent access, and up to eight favorites;
+- compact popup with search, recent access, and a scrollable favorites list;
 - new-install defaults of a 400 px popup and original custom icon colors;
 - compact contextual shortcuts for View, Tool, Edit, and Item;
-- compact Library popover with categories, quick assignment, and a collapsible list
-  of every available tab;
+- separate Library and Categories popovers; Library lists every available tab and
+  Categories manages tabs grouped by category;
 - compact category-member management in the configuration panel;
 - six general-purpose groups created during initial setup;
 - bundled library of `QNP_*` icons for groups and tabs;
 - self-refreshing small and large icon previews without restarting Blender;
 - configuration panel organized into collapsible sections;
-- dynamic, ordered favorites limited to eight entries;
+- dynamic, ordered favorites with ten visible rows and internal scrolling;
 - recent access with persistent counters and timestamps;
+- a temporary `New` section below Recent for up to three newly enabled add-ons;
+- exact attribution for legacy add-ons and Blender Extensions using their enabled
+  module keys, including `bl_ext.<repository>.<package>`;
+- seven-day New entries that disappear when opened or dismissed;
 - starter Recent entries on a fresh installation, replaced by real activity;
 - native search with simplified tab names;
 - persistent configuration in `AddonPreferences`;
 - previews for custom icons and accents;
 - `F5` launcher shortcut registered in the `3D View` keymap and customizable
   through Blender's standard `Preferences > Keymap` editor;
+- experimental automatic opening of either the Library or Categories popover when
+  the launcher shortcut is used; the two options are mutually exclusive and are
+  shown as compact one-line controls;
+- configuration-header update notice when Blender's cached Extensions index has a
+  newer Quick N-panel version, with detailed read-only status in Diagnostics;
 - recovery of targets that disappear and are registered again;
 - configuration recovery after disabling and re-enabling the extension;
 - atomic, versioned configuration snapshots with backup recovery;
@@ -61,7 +73,8 @@ To build the extension from a source checkout:
 
 3. Open Blender and select `Edit > Preferences > Get Extensions > Install from Disk`.
 4. Select the generated ZIP file and enable Quick N-panel.
-5. Open a 3D Viewport and press `F5`.
+5. Open a 3D Viewport and press the configured launcher shortcut (`F5` by
+   default).
 
 Management controls are available under `3D View > Sidebar > Quick N-panel`.
 
@@ -71,10 +84,15 @@ modern extension; do not move it to `scripts/addons`.
 
 ## Shortcut
 
-Quick N-panel registers `F5` in Blender's `3D View` keymap. To change or disable
-it, open `Edit > Preferences > Keymap` and search for `Quick N-panel` or
-`quick_n_panel.show_launcher`. The extension intentionally does not modify user
-keymaps or provide a separate shortcut editor.
+Quick N-panel registers `F5` by default in Blender's `3D View` keymap. To change
+or disable it, open `Edit > Preferences > Keymap` and search for `Quick N-panel`
+or `quick_n_panel.show_launcher`. The extension intentionally does not modify
+user keymaps or provide a separate shortcut editor. The Library and Categories
+configuration rows display the effective shortcut, including user changes.
+
+The experimental Library and Categories startup options open the selected
+existing popover together with the launcher. Only one can be enabled at a time;
+both are disabled by default.
 <img width="1920" height="1080" alt="QNP F" src="https://github.com/user-attachments/assets/98993f37-0bb5-4b70-b883-f1fe395d6298" />
 
 ## Included Icons
@@ -99,10 +117,13 @@ directory. The previous valid generation is retained as `.bak`, interrupted
 writes can recover from `.pending`, and unreadable snapshots are quarantined
 instead of overwritten.
 
-Sidecar format migrations are sequential. The current reader migrates the
-original v1 format to v2 before validation. Managed external icons are stored in
-the same extension-owned user-data directory and are deleted only after neither
-the current snapshot nor its backup references them.
+Sidecar migrations are applied sequentially before validation. Managed external
+icons are stored in the same extension-owned user-data directory and are deleted
+only after neither the current snapshot nor its backup references them.
+
+The current sidecar schema is `v9`. It stores the enabled add-on baseline
+separately from retained tab metadata so unavailable or previously seen targets do
+not suppress future enable transitions.
 
 Use `Diagnostics > Configuration Backup > Export` before uninstalling, changing
 extension repositories, moving to another profile, or transferring to another
@@ -113,21 +134,22 @@ be restored with `Import`.
 
 ```text
 core/catalog.py             Pure models and stable identity
-core/scanner.py             Detection and runtime cache
+core/scanner.py             Enabled add-on detection and runtime cache
 core/navigation.py          Tab opening, activation, and history
 core/search.py              Normalization and approximate ranking
 core/icons.py               Previews, QNP_* library, and accents
 core/compatibility.py       Blender feature probes
+core/update_status.py       Read-only update status from Blender's cache
 persistence.py              Versioned snapshots and portable backups
 operators/favorites.py      Ordered favorites collection
 operators/groups.py         Categories, memberships, and ordering
 operators/library.py        Refresh and customization
 operators/launcher.py       Popup and native search
-ui/popup.py                 Compact and expanded layouts
+ui/popup.py                 Launcher, Library, and Categories popovers
 ui/sections/                Collapsible configuration panel content
 preferences.py              Persistent user settings root
 registration.py             Transactional, reversible registration
-keymap.py                    Default shortcut registration and cleanup
+keymap.py                    Shortcut registration, labels, and cleanup
 ```
 
 A target's persistent identity has the following form:
@@ -167,9 +189,25 @@ logs or screenshots.
 ## Known Limitations
 
 - Blender does not expose a universal add-on identity for every panel.
+- `New` is shown only after an add-on is enabled and registers a matching
+  `VIEW_3D` / `UI` panel; installing a package without enabling it does not create
+  a notification.
+- The first scan after a fresh install or schema migration creates a silent
+  baseline. Use `F5` or `Refresh Detection` once before testing a new install.
+- Update status is read-only. It uses the repository index already cached by
+  Blender, is available only for Blender-managed remote repositories, and never
+  downloads or installs an update. Manual `user_default` installations are
+  reported as manually managed.
+- There is no public Blender event that identifies every installation. Detection
+  runs during catalog scans, not through a permanent background observer.
+- An uninstall and reinstall performed entirely while Blender and Quick N-panel
+  are closed can be indistinguishable when the add-on keeps the same module key.
 - Search uses `invoke_search_popup`; Blender controls its width and visible row
   count.
 - Native mode does not support animating the side popover as it opens.
+- Blender does not expose a generic scroll container for arbitrary popup grids;
+  large category layouts are currently measured before a scroll or pagination
+  strategy is selected.
 - Manually opened tabs are captured the next time the launcher is invoked,
   without a permanent background observer.
 - Interactive release tests currently require actual Blender 5.0-5.2

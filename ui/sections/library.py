@@ -1,11 +1,20 @@
 """Detected sidebar tab library section."""
 
+from ... import keymap
 from ...core import scanner
 from ...core.catalog import split_metadata
+from ...core.memberships import target_group_ids
 from .groups import _draw_external_icon_controls
 
 
-def draw(layout, _context, preferences):
+def draw(layout, context, preferences):
+    startup_row = layout.row(align=True)
+    startup_row.prop(
+        preferences,
+        "auto_open_library",
+        text=f"Also open Library with {keymap.shortcut_label(context)}",
+    )
+
     snapshot = scanner.get_snapshot()
     summary = layout.row(align=True)
     summary.label(
@@ -55,10 +64,12 @@ def _draw_target_details(layout, preferences, target):
     box.prop(target, "icon_name")
     _draw_external_icon_controls(box, target, "TARGET", target.native_key)
 
-    if target.group_id:
-        group = preferences.groups.get(target.group_id)
+    groups = [preferences.groups.get(group_id) for group_id in target_group_ids(target)]
+    groups = [group for group in groups if group is not None]
+    if groups:
+        label = "Category" if len(groups) == 1 else "Categories"
         box.label(
-            text=f"Category: {group.display_name if group else 'Unavailable'}",
+            text=f"{label}: {', '.join(group.display_name for group in groups)}",
             icon="OUTLINER_COLLECTION",
         )
 

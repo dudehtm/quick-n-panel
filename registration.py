@@ -1,11 +1,14 @@
 """Centralized and reversible Blender registration."""
 
 import bpy
-from bpy.props import BoolProperty
+from bpy.props import BoolProperty, IntProperty
 
 from . import keymap, persistence
 from .core import icons, navigation, scanner
-from .operators.launcher import CLASSES as LAUNCHER_CLASSES
+from .operators.launcher import (
+    CLASSES as LAUNCHER_CLASSES,
+    cancel_pending_auto_open,
+)
 from .operators.navigation import CLASSES as NAVIGATION_CLASSES
 from .operators.organization import CLASSES as ORGANIZATION_CLASSES
 from .preferences import (
@@ -14,6 +17,7 @@ from .preferences import (
     ensure_default_groups,
     ensure_display_mode,
     ensure_favorites,
+    ensure_group_memberships,
     get_preferences,
 )
 from .properties import CLASSES as PROPERTY_CLASSES
@@ -34,10 +38,17 @@ CLASSES = (
 
 _registered_classes = []
 _is_registered = False
-_ALL_TABS_EXPANDED_PROPERTY = "qnp_all_tabs_expanded"
+_EMPTY_CATEGORIES_EXPANDED_PROPERTY = "qnp_empty_categories_expanded"
+_LAUNCHER_FAVORITE_INDEX_PROPERTY = "qnp_launcher_favorite_index"
 
 
-def _all_tabs_expansion_updated(_window_manager, context):
+def _empty_categories_expansion_updated(_window_manager, context):
+    region = getattr(context, "region", None)
+    if region is not None:
+        region.tag_redraw()
+
+
+def _launcher_favorite_index_updated(_window_manager, context):
     region = getattr(context, "region", None)
     if region is not None:
         region.tag_redraw()
@@ -69,6 +80,7 @@ def register_addon():
             icons.refresh_icon_previews()
             icons.migrate_bundled_icon_values(preferences)
             ensure_default_groups(preferences)
+            ensure_group_memberships(preferences)
             ensure_favorites(preferences)
         scanner.refresh_catalog(bpy.context, force=True)
         if preferences is not None:
@@ -93,8 +105,8 @@ def unregister_addon():
                 )
     finally:
         _cleanup_runtime()
-        _unregister_classes()
         _unregister_runtime_properties()
+        _unregister_classes()
         _is_registered = False
 
 
@@ -102,8 +114,8 @@ def _rollback_registration():
     global _is_registered
 
     _cleanup_runtime()
-    _unregister_classes()
     _unregister_runtime_properties()
+    _unregister_classes()
     _is_registered = False
 
 
@@ -111,6 +123,7 @@ def _cleanup_runtime():
     for cleanup in (
         persistence.cancel_pending_save,
         navigation.cancel_pending_activations,
+        cancel_pending_auto_open,
         keymap.unregister,
         scanner.unregister_handlers,
         icons.unregister,
@@ -132,20 +145,35 @@ def _unregister_classes():
 
 
 def _register_runtime_properties():
-    if not hasattr(bpy.types.WindowManager, _ALL_TABS_EXPANDED_PROPERTY):
+    if not hasattr(bpy.types.WindowManager, _EMPTY_CATEGORIES_EXPANDED_PROPERTY):
         setattr(
             bpy.types.WindowManager,
-            _ALL_TABS_EXPANDED_PROPERTY,
+            _EMPTY_CATEGORIES_EXPANDED_PROPERTY,
             BoolProperty(
-                name="Show All Tabs",
-                description="Show every available tab in the Library popover",
-                default=True,
+                name="Show Empty Categories",
+                description="Show categories without assigned tabs",
+                default=False,
                 options={"HIDDEN", "SKIP_SAVE"},
-                update=_all_tabs_expansion_updated,
+                update=_empty_categories_expansion_updated,
+            ),
+        )
+    if not hasattr(bpy.types.WindowManager, _LAUNCHER_FAVORITE_INDEX_PROPERTY):
+        setattr(
+            bpy.types.WindowManager,
+            _LAUNCHER_FAVORITE_INDEX_PROPERTY,
+            IntProperty(
+                name="Launcher Favorite",
+                description="Active favorite row in the launcher",
+                default=0,
+                min=0,
+                options={"HIDDEN", "SKIP_SAVE"},
+                update=_launcher_favorite_index_updated,
             ),
         )
 
 
 def _unregister_runtime_properties():
-    if hasattr(bpy.types.WindowManager, _ALL_TABS_EXPANDED_PROPERTY):
-        delattr(bpy.types.WindowManager, _ALL_TABS_EXPANDED_PROPERTY)
+    if hasattr(bpy.types.WindowManager, _EMPTY_CATEGORIES_EXPANDED_PROPERTY):
+        delattr(bpy.types.WindowManager, _EMPTY_CATEGORIES_EXPANDED_PROPERTY)
+    if hasattr(bpy.types.WindowManager, _LAUNCHER_FAVORITE_INDEX_PROPERTY):
+        delattr(bpy.types.WindowManager, _LAUNCHER_FAVORITE_INDEX_PROPERTY)

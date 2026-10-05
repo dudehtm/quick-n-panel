@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "quick_n_panel"
-version = "1.0.1"
+version = "1.1.0"
 name = "Quick N-panel"
 tagline = "Open add-on tabs quickly from the 3D View N-panel"
 maintainer = "Dudehtm"
@@ -30,7 +30,9 @@ paths_exclude_pattern = [
   "/tests/",
   "/AGENT.md",
   "/MULTI_EDITOR_PLAN.md",
+  "/FUTURE_FEATURES.md",
   "/EXPORTACION_Y_DISTRIBUCION.md",
+  "/FEEDBACK_Y_AJUSTES.md",
   "/pyproject.toml",
   "/*.zip",
 ]

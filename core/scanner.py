@@ -1,7 +1,9 @@
 """Discovery and runtime catalog cache for VIEW_3D sidebar tabs."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import time
+from types import MappingProxyType
+from typing import Mapping
 
 import bpy
 from bpy.app.handlers import persistent
@@ -10,6 +12,7 @@ from ..constants import ADDON_PACKAGE, DIRECT_CATEGORIES
 from .catalog import (
     PanelDescriptor,
     TargetDescriptor,
+    addon_key_for_module,
     make_target_key,
 )
 from .reconciliation import reconcile_catalog_targets
@@ -20,18 +23,41 @@ class CatalogSnapshot:
     targets: tuple[TargetDescriptor, ...] = ()
     scanned_at: float = 0.0
     warnings: tuple[str, ...] = ()
+    _by_key: Mapping[str, TargetDescriptor] = field(
+        init=False,
+        repr=False,
+        compare=False,
+    )
+    _panel_count: int = field(init=False, compare=False)
+
+    def __post_init__(self):
+        object.__setattr__(
+            self,
+            "_by_key",
+            MappingProxyType({target.native_key: target for target in self.targets}),
+        )
+        object.__setattr__(
+            self,
+            "_panel_count",
+            sum(len(target.panels) for target in self.targets),
+        )
 
     @property
-    def by_key(self) -> dict[str, TargetDescriptor]:
-        return {target.native_key: target for target in self.targets}
+    def by_key(self) -> Mapping[str, TargetDescriptor]:
+        return self._by_key
 
     @property
     def panel_count(self) -> int:
-        return sum(len(target.panels) for target in self.targets)
+        return self._panel_count
 
 
 _snapshot = CatalogSnapshot()
 _last_include_builtin = None
+_last_enabled_addon_signature = None
+_addon_incarnations = {}
+_panel_incarnations = {}
+_addon_state_seen = False
+_active_availability_cache = None
 
 _NATIVE_DIRECT_PANEL_IDS = {
     "View": "VIEW3D_PT_view3d_properties",
@@ -60,13 +86,12 @@ _PANEL_CONTEXTS_BY_MODE = {
 
 
 def refresh_catalog(context=None, *, force=False, sync_preferences=True) -> CatalogSnapshot:
-    global _snapshot, _last_include_builtin
+    global _snapshot, _last_include_builtin, _last_enabled_addon_signature
 
     context = context or bpy.context
     preferences = _preferences_or_none(context)
     include_builtin = bool(preferences and preferences.include_builtin_tabs)
-
-    cache_is_fresh = time.time() - _snapshot.scanned_at < 1.0
+    cache_is_fresh = time.monotonic() - _snapshot.scanned_at < 1.0
     if (
         not force
         and _snapshot.scanned_at
@@ -75,19 +100,43 @@ def refresh_catalog(context=None, *, force=False, sync_preferences=True) -> Cata
     ):
         return _snapshot
 
+    enabled_addon_keys, addon_incarnations = _enabled_addon_state(context)
+    panel_incarnations = _panel_incarnation_state(enabled_addon_keys)
+    enabled_addon_signature = _enabled_addon_signature(
+        enabled_addon_keys,
+        addon_incarnations,
+        panel_incarnations,
+    )
+
+    transitioned_addon_keys = _transitioned_addon_keys(
+        enabled_addon_keys,
+        addon_incarnations,
+        panel_incarnations,
+    )
     targets = scan_sidebar_targets(include_builtin=include_builtin)
-    scanned_at = time.time()
+    scanned_at = time.monotonic()
     _snapshot = CatalogSnapshot(targets=targets, scanned_at=scanned_at)
     _last_include_builtin = include_builtin
 
     if sync_preferences and preferences is not None:
-        warnings = sync_catalog_to_preferences(_snapshot, preferences)
+        warnings = sync_catalog_to_preferences(
+            _snapshot,
+            preferences,
+            enabled_addon_keys=enabled_addon_keys,
+            transitioned_addon_keys=transitioned_addon_keys,
+        )
         _snapshot = CatalogSnapshot(
             targets=targets,
             scanned_at=scanned_at,
             warnings=warnings,
         )
 
+    _remember_addon_state(
+        enabled_addon_keys,
+        addon_incarnations,
+        panel_incarnations,
+    )
+    _last_enabled_addon_signature = enabled_addon_signature
     return _snapshot
 
 
@@ -142,46 +191,221 @@ def scan_sidebar_targets(*, include_builtin=False) -> tuple[TargetDescriptor, ..
     return tuple(targets)
 
 
-def sync_catalog_to_preferences(snapshot: CatalogSnapshot, preferences):
+def sync_catalog_to_preferences(
+    snapshot: CatalogSnapshot,
+    preferences,
+    *,
+    enabled_addon_keys=None,
+    transitioned_addon_keys=(),
+):
+    from ..preferences import reconcile_new_addons
+
+    discovery_changed = reconcile_new_addons(
+        preferences,
+        snapshot.targets,
+        enabled_addon_keys=enabled_addon_keys,
+        transitioned_addon_keys=transitioned_addon_keys,
+    )
     result = reconcile_catalog_targets(snapshot.targets, preferences)
-    if result.changed:
+    if discovery_changed or result.changed:
         from .. import persistence
 
         persistence.request_save()
     return result.warnings
 
 
+def _enabled_addon_state(context):
+    user_preferences = getattr(context, "preferences", None)
+    addons = getattr(user_preferences, "addons", None)
+    if addons is None:
+        return None, {}
+
+    enabled_addon_keys = set()
+    addon_incarnations = {}
+    try:
+        addon_items = tuple(addons)
+    except (TypeError, RuntimeError, ValueError):
+        return None, {}
+
+    for addon in addon_items:
+        addon_key = str(getattr(addon, "module", "") or "")
+        if not addon_key or addon_key == ADDON_PACKAGE:
+            continue
+        enabled_addon_keys.add(addon_key)
+        addon_incarnations[addon_key] = _addon_incarnation(addon)
+    return frozenset(enabled_addon_keys), addon_incarnations
+
+
+def _addon_incarnation(addon):
+    as_pointer = getattr(addon, "as_pointer", None)
+    if callable(as_pointer):
+        try:
+            pointer = int(as_pointer())
+        except (TypeError, RuntimeError, ValueError):
+            pointer = 0
+        if pointer:
+            return ("rna", pointer)
+    return ("python", id(addon))
+
+
+def _panel_incarnation_state(enabled_addon_keys):
+    if enabled_addon_keys is None:
+        return None
+
+    panels_by_addon = {}
+    for panel_type in _registered_panel_types():
+        if getattr(panel_type, "bl_space_type", "") != "VIEW_3D":
+            continue
+        if getattr(panel_type, "bl_region_type", "") != "UI":
+            continue
+        if not str(getattr(panel_type, "bl_category", "") or "").strip():
+            continue
+
+        module = str(getattr(panel_type, "__module__", "") or "")
+        addon_key = addon_key_for_module(module, enabled_addon_keys)
+        if not addon_key:
+            continue
+        identifier = str(
+            getattr(panel_type, "bl_idname", "") or panel_type.__name__
+        )
+        panels_by_addon.setdefault(addon_key, []).append((identifier, panel_type))
+
+    return {
+        addon_key: tuple(
+            sorted(
+                panels,
+                key=lambda panel: (panel[0], id(panel[1])),
+            )
+        )
+        for addon_key, panels in panels_by_addon.items()
+    }
+
+
+def _enabled_addon_signature(
+    enabled_addon_keys,
+    addon_incarnations,
+    panel_incarnations,
+):
+    if enabled_addon_keys is None:
+        return None
+    return tuple(
+        sorted(
+            (
+                addon_key,
+                addon_incarnations.get(addon_key),
+                (panel_incarnations or {}).get(addon_key, ()),
+            )
+            for addon_key in enabled_addon_keys
+        )
+    )
+
+
+def _transitioned_addon_keys(
+    enabled_addon_keys,
+    addon_incarnations,
+    panel_incarnations=None,
+):
+    if enabled_addon_keys is None or not _addon_state_seen:
+        return set()
+
+    previous_keys = set(_addon_incarnations)
+    transitioned = set(enabled_addon_keys) - previous_keys
+    for addon_key in set(enabled_addon_keys) & previous_keys:
+        if (
+            addon_incarnations.get(addon_key)
+            != _addon_incarnations.get(addon_key)
+            or (panel_incarnations or {}).get(addon_key, ())
+            != _panel_incarnations.get(addon_key, ())
+        ):
+            transitioned.add(addon_key)
+    return transitioned
+
+
+def _remember_addon_state(
+    enabled_addon_keys,
+    addon_incarnations,
+    panel_incarnations=None,
+):
+    global _addon_incarnations, _panel_incarnations, _addon_state_seen
+    if enabled_addon_keys is None:
+        return
+    _addon_incarnations = dict(addon_incarnations)
+    _panel_incarnations = dict(panel_incarnations or {})
+    _addon_state_seen = True
+
+
 def get_snapshot() -> CatalogSnapshot:
     return _snapshot
 
 
-def get_target(target_key: str) -> TargetDescriptor | None:
-    return _snapshot.by_key.get(target_key)
+def get_target(target_key: str, *, snapshot: CatalogSnapshot | None = None):
+    snapshot = snapshot or _snapshot
+    return snapshot.by_key.get(target_key)
 
 
-def target_exists(target_key: str) -> bool:
-    return target_key in _snapshot.by_key
+def target_exists(target_key: str, *, snapshot: CatalogSnapshot | None = None) -> bool:
+    snapshot = snapshot or _snapshot
+    return target_key in snapshot.by_key
 
 
-def target_is_context_available(target_key: str, context) -> bool:
-    target = get_target(target_key)
+def target_is_context_available(
+    target_key: str,
+    context,
+    *,
+    snapshot: CatalogSnapshot | None = None,
+    availability_cache=None,
+) -> bool:
+    if availability_cache is not None and target_key in availability_cache:
+        return availability_cache[target_key]
+
+    target = get_target(target_key, snapshot=snapshot)
     if target is None:
+        if availability_cache is not None:
+            availability_cache[target_key] = False
         return False
     if target.native_category == "Item" and getattr(context, "active_object", None) is not None:
-        return True
-    return _target_has_visible_root_panel(target, context)
+        available = True
+    else:
+        available = _target_has_visible_root_panel(target, context)
+    if availability_cache is not None:
+        availability_cache[target_key] = available
+    return available
 
 
-def available_direct_categories(context) -> tuple[str, ...]:
+def set_active_availability_cache(availability_cache):
+    """Temporarily share popup availability results with UIList rows."""
+    global _active_availability_cache
+    previous = _active_availability_cache
+    _active_availability_cache = availability_cache
+    return previous
+
+
+def get_active_availability_cache():
+    return _active_availability_cache
+
+
+def available_direct_categories(
+    context,
+    *,
+    snapshot: CatalogSnapshot | None = None,
+    availability_cache=None,
+) -> tuple[str, ...]:
     """Return the requested compact shortcuts that exist in this 3D View."""
 
     area = getattr(context, "area", None)
     if area is None or area.type != "VIEW_3D":
         return ()
 
-    snapshot = refresh_catalog(context)
+    snapshot = snapshot or refresh_catalog(context)
     available = []
     for category in DIRECT_CATEGORIES:
+        cache_key = ("direct", category)
+        if availability_cache is not None and cache_key in availability_cache:
+            is_available = availability_cache[cache_key]
+            if is_available:
+                available.append(category)
+            continue
+
         if category in _NATIVE_DIRECT_PANEL_IDS:
             is_available = _native_direct_category_available(category, context)
         elif category == "Edit":
@@ -194,15 +418,24 @@ def available_direct_categories(context) -> tuple[str, ...]:
             # Blender's primary Item/Transform panel is implemented in C.
             is_available = getattr(context, "active_object", None) is not None
 
+        if availability_cache is not None:
+            availability_cache[cache_key] = is_available
         if is_available:
             available.append(category)
     return tuple(available)
 
 
 def invalidate_catalog():
-    global _snapshot, _last_include_builtin
+    global _snapshot, _last_include_builtin, _last_enabled_addon_signature
+    global _addon_incarnations, _panel_incarnations, _addon_state_seen
+    global _active_availability_cache
     _snapshot = CatalogSnapshot()
     _last_include_builtin = None
+    _last_enabled_addon_signature = None
+    _addon_incarnations = {}
+    _panel_incarnations = {}
+    _addon_state_seen = False
+    _active_availability_cache = None
 
 
 @persistent

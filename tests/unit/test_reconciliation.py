@@ -30,6 +30,7 @@ def target_defaults():
         "last_opened_at": "",
         "group_id": "",
         "group_order": 0,
+        "group_memberships": "",
         "hidden": False,
         "icon_name": "PLUGIN",
         "bundled_icon": "NONE",
