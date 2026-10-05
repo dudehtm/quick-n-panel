@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.1.0 - Unreleased
+## 1.1.0 - 2026-10-04
 
 - Added a Blender-managed update status notice in the configuration header and
   detailed update information in Diagnostics. The extension only reads

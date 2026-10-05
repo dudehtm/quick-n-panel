@@ -6,8 +6,8 @@ Blender 5.2. It detects add-on tabs in the 3D Viewport N-panel and lets you open
 them from a quick launcher. It does not copy panels, register third-party
 interfaces, or manage installations.
 
-The current source manifest is `1.1.0` and is not published yet; the latest
-public release is `1.0.1`.
+The current public release is `1.1.0`. The validated package is available from
+the [GitHub release page](https://github.com/dudehtm/quick-n-panel/releases/tag/v1.1.0).
 
 ## Features
 
